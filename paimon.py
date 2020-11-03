@@ -123,7 +123,7 @@ def set_resin(user_id, resin):
         )
     else:
         cur.execute(
-            ('INSERT INTO users '
+            ('INSERT INTO users (user_id, resin)'
              'VALUES (?, ?)'),
             [user_id, resin]
         )
@@ -177,7 +177,9 @@ def warn(update, context):
     else:
         user_state[user_id] = 'warn'
         update.message.reply_text(
-            "Tell me at what resin value should I notify you.",
+            ("I'm warning you at {} resin. "
+             "Tell me at what resin value should I notify you."
+             .format(get_warn(user_id))),
             quote=True)
 
 
@@ -237,7 +239,8 @@ class ResinThread(Thread):
                 self.stopped.set()
                 self.context.bot.send_message(
                     chat_id=self.user_id,
-                    text="Hey! You have {} resin waiting! Don't let it lose."
+                    text=("Hey! You have {} resin waiting! "
+                          "You won't gain more resin!.")
                     .format(resin)
                 )
                 self.maxreached = True
@@ -255,6 +258,10 @@ def text(update, context):
         if user_state[user_id] == 'refill':
             if text.isdigit():
                 resin = int(text)
+                try:
+                    threads[user_id][0].set()
+                except KeyError:
+                    pass
                 set_resin(user_id, resin)
                 update.message.reply_text(
                     "Ok. I have updated your resin to value: {}".format(resin),
@@ -275,10 +282,7 @@ def text(update, context):
                 datetime_obj = datetime.strptime(text, fmt)
                 seconds = (int(datetime_obj.strftime('%M')) * 60
                            + int(datetime_obj.strftime('%S')))
-                try:
-                    threads[user_id][0].set()
-                except KeyError:
-                    pass
+
                 resin_flag = Event()
                 resin_thread = ResinThread(resin_flag, user_id,
                                            seconds, get_warn(user_id), context)
@@ -291,7 +295,7 @@ def text(update, context):
 
             except ValueError:
                 update.message.reply_text(
-                    "{} bad format! Use the format: mm:ss".format(text),
+                    "{} bad format! Use the format mm:ss".format(text),
                     quote=True)
             pass
         elif user_state[user_id] == 'warn':
@@ -338,6 +342,9 @@ if __name__ == '__main__':
 
     stop_handler = CommandHandler('stop', stop)
     dispatcher.add_handler(stop_handler)
+
+    warn_handler = CommandHandler('warn', warn)
+    dispatcher.add_handler(warn_handler)
 
     refill_handler = CommandHandler('refill', refill)
     dispatcher.add_handler(refill_handler)
