@@ -1,135 +1,10 @@
 #!/usr/bin/env python3
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from threading import Event, Thread
+from telegram import ParseMode
 from datetime import datetime
-import sqlite3
+from threading import Event
+import util
 import logging
-
-
-def set_up_db():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id TEXT PRIMARY KEY,
-            resin INTEGER DEFAULT 0,
-            warn INTEGER DEFAULT 110
-        )''')
-    db.close()
-
-
-def is_user_in_db(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM users '
-         'WHERE user_id = ?)'),
-        [user_id]
-    )
-    exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
-    db.close()
-    return exist
-
-
-def delete_from_db(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('DELETE '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-
-
-def get_resin(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT resin '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    resin = cur.fetchone()[0]  # (x,)
-    db.close()
-    return resin
-
-
-def get_warn(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT warn '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    warn = cur.fetchone()[0]  # (x,)
-    db.close()
-    return warn
-
-
-def set_warn(user_id, warn):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET warn = ? '
-             'WHERE user_id = ?'),
-            [warn, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, warn)'
-             'VALUES (?, ?)'),
-            [user_id, warn]
-        )
-
-    db.commit()
-    db.close()
-
-
-def inc_resin(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE users '
-         'SET resin = resin + 1 '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-
-
-def set_resin(user_id, resin):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET resin = ? '
-             'WHERE user_id = ?'),
-            [resin, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, resin)'
-             'VALUES (?, ?)'),
-            [user_id, resin]
-        )
-
-    db.commit()
-    db.close()
 
 
 user_state = {}
@@ -139,8 +14,8 @@ wait_for_thread = []
 
 def start(update, context):
     user_id = update.message.chat.id
-    if not is_user_in_db(user_id):
-        set_resin(user_id, 120)
+    if not util.is_user_in_db(user_id):
+        util.set_resin(user_id, util.MAX_RESIN)
         update.message.reply_text(
             ("Hi, {}\nTo start tracking your resin, "
              "set your current resin with /refill.")
@@ -154,10 +29,181 @@ def start(update, context):
             quote=True)
 
 
+def refill(update, context):
+    user_id = update.message.chat.id
+    if not util.is_user_in_db(user_id):
+        update.message.reply_text(
+            ("Traveler! You need to start the bot with /start "
+             "to set up your information."),
+            quote=True)
+    else:
+        if context.args:
+            if len(context.args) < 2:
+                update.message.reply_text(
+                    "Incorrect number of arguments. Use /refill x mm:ss.",
+                    quote=True)
+            else:
+                try:
+                    resin = int(context.args[0])
+                    if resin > util.MAX_RESIN:
+                        context.bot.send_message(
+                            chat_id=user_id,
+                            text=("You can't have more than {} resin! "
+                                  .format(util.MAX_RESIN)))
+                except ValueError:
+                    update.message.reply_text(
+                        ("{} te nandayo! "
+                         "You must give an integer value and lower than {}!")
+                        .format(context.args[0], util.MAX_RESIN),
+                        quote=True)
+                else:
+                    try:
+                        next_resin = context.args[1]
+                        fmt = "%M:%S"
+                        datetime_obj = datetime.strptime(next_resin, fmt)
+                    except ValueError:
+                        update.message.reply_text(
+                            "{} te nandayo! Use format mm:ss!"
+                            .format(next_resin),
+                            quote=True)
+                    else:
+                        seconds = (int(datetime_obj.strftime('%M')) * 60
+                                   + int(datetime_obj.strftime('%S')))
+
+                        try:
+                            threads[user_id][0].set()
+                        except KeyError:
+                            pass
+
+                        util.set_resin(user_id, resin)
+
+                        resin_flag = Event()
+                        resin_thread = util.ResinThread(resin_flag, user_id,
+                                                        seconds,
+                                                        util.get_warn(user_id),
+                                                        context)
+                        threads[user_id] = (resin_flag, resin_thread)
+                        resin_thread.start()
+
+                        update.message.reply_text(
+                            "Perfect. I'm tracking your resin.",
+                            quote=True)
+
+        else:
+            user_state[user_id] = 'refill'
+            update.message.reply_text(
+                "Tell me how much resin you have right now.",
+                quote=True)
+
+
+def warn(update, context):
+    user_id = update.message.chat.id
+    if not util.is_user_in_db(user_id):
+        update.message.reply_text(
+            ("Traveler! You need to start the bot with /start "
+             "to set up your information."),
+            quote=True)
+    else:
+        if context.args:
+            try:
+                warn = int(context.args[0])
+            except ValueError:
+                update.message.reply_text(
+                    "{} te nandayo!!. You must give an integer value!"
+                    .format(context.args[0]),
+                    quote=True)
+            else:
+                if warn > util.MAX_RESIN:
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=("I can't notify you above {} resin! "
+                              .format(util.MAX_RESIN)))
+                else:
+                    util.set_warn(user_id, warn)
+
+                    update.message.reply_text(
+                        ("Ok. I have updated your resin warning to value: {}. "
+                         "You must /refill again to update the warning.")
+                        .format(warn),
+                        quote=True)
+        else:
+            user_state[user_id] = 'warn'
+            update.message.reply_text(
+                ("I'm warning you at {} resin. "
+                 "Tell me at what resin value should I notify you."
+                 .format(util.get_warn(user_id))),
+                quote=True)
+
+
+def myresin(update, context):
+    user_id = update.message.chat.id
+    if not util.is_user_in_db(user_id):
+        update.message.reply_text(
+            ("Traveler! You need to start the bot with /start "
+             "to set up your information."),
+            quote=True)
+    else:
+        user_state[user_id] = 'myresin'
+        resin = util.get_resin(user_id)
+        update.message.reply_text(
+            "You have {} resin right now.".format(resin),
+            quote=True)
+
+
+def notrack(update, context):
+    user_id = update.message.chat.id
+    if not util.is_user_in_db(user_id):
+        update.message.reply_text(
+            ("Traveler! You need to start the bot with /start "
+             "to set up your information."),
+            quote=True)
+    else:
+        user_state[user_id] = 'notrack'
+        try:
+            threads[user_id][0].set()
+        except KeyError:
+            pass
+        update.message.reply_text(
+            "Ok. I have stopped the resin tracking.",
+            quote=True)
+
+
+def bothelp(update, context):
+    update.message.reply_text(
+        ("/start Start bot, set up your information. "
+         "Mandatory if you want to interact with the bot.\n\n"
+         "/refill Change your current resin value. "
+         "Can be called alone or passing resin and time as parameters, "
+         "e.g. /refill or /refill 50 00:04.\n\n"
+         "/warn Change resin notification value. "
+         "Set the value to be notified at. Can be called alone or "
+         "passing limit as parameter, "
+         "e.g. /warn or /warn 110.\n\n"
+         "/myresin Show current resin value.\n\n"
+         "/notrack Cancel current resin tracking.\n\n"
+         "/help Show this message.\n\n"
+         "/cancel Cancel current command.\n\n"
+         "/stop Delete bot information about you.\n\n"),
+        quote=True)
+
+
+def cancel(update, context):
+    user_id = update.message.chat.id
+    if util.is_user_in_db(user_id):
+        user_state[user_id] = 'start'
+        update.message.reply_text(
+            "Current command cancelled.",
+            quote=True)
+    else:
+        update.message.reply_text(
+            "I don't have information about you.",
+            quote=True)
+
+
 def stop(update, context):
     user_id = update.message.chat.id
-    if is_user_in_db(user_id):
-        delete_from_db(user_id)
+    if util.is_user_in_db(user_id):
+        util.delete_from_db(user_id)
         update.message.reply_text(
             "I have deleted any information about you.",
             quote=True)
@@ -167,88 +213,17 @@ def stop(update, context):
             quote=True)
 
 
-def warn(update, context):
+def announce(update, context):
     user_id = update.message.chat.id
-    if not is_user_in_db(user_id):
-        update.message.reply_text(
-            ("Traveler! You need to start the bot with /start "
-             "to set up your information."),
-            quote=True)
-    else:
-        user_state[user_id] = 'warn'
-        update.message.reply_text(
-            ("I'm warning you at {} resin. "
-             "Tell me at what resin value should I notify you."
-             .format(get_warn(user_id))),
-            quote=True)
-
-
-def refill(update, context):
-    user_id = update.message.chat.id
-    if not is_user_in_db(user_id):
-        update.message.reply_text(
-            ("Traveler! You need to start the bot with /start "
-             "to set up your information."),
-            quote=True)
-    else:
-        user_state[user_id] = 'refill'
-        update.message.reply_text(
-            "Tell me how much resin you have right now.",
-            quote=True)
-
-
-def myresin(update, context):
-    user_id = update.message.chat.id
-    if not is_user_in_db(user_id):
-        update.message.reply_text(
-            ("Traveler! You need to start the bot with /start "
-             "to set up your information."),
-            quote=True)
-    else:
-        user_state[user_id] = 'myresin'
-        resin = get_resin(user_id)
-        update.message.reply_text(
-            "You have {} resin right now.".format(resin),
-            quote=True)
-
-
-class ResinThread(Thread):
-    def __init__(self, event, user_id, current_timer, warn, context):
-        Thread.__init__(self)
-        self.stopped = event
-        self.user_id = user_id
-        self.current_timer = current_timer
-        self.warn = warn
-        self.notified = False
-        self.maxreached = False
-        self.context = context
-        self.daemon = True
-
-    def run(self):
-        while not self.stopped.wait(self.current_timer):
-            inc_resin(self.user_id)
-            resin = get_resin(self.user_id)
-            if resin >= self.warn and not self.notified:
-                self.context.bot.send_message(
-                    chat_id=self.user_id,
-                    text="Hey! You have {} resin waiting! Don't let it lose."
-                    .format(resin)
-                )
-                self.notified = True
-            elif resin == 120 and not self.maxreached:
-                self.stopped.set()
-                self.context.bot.send_message(
-                    chat_id=self.user_id,
-                    text=("Hey! You have {} resin waiting! "
-                          "You won't gain more resin!.")
-                    .format(resin)
-                )
-                self.maxreached = True
-            elif resin < self.warn:
-                self.notified = False
-                self.maxreached = False
-
-            self.current_timer = 480
+    with open('.adminid', 'r') as f:
+        admin_id = f.read().strip()
+    if int(user_id) == int(admin_id):
+        msg = "*Announcement:* " + " ".join(context.args)
+        users = util.get_users()
+        for user, in users:
+            context.bot.send_message(chat_id=user,
+                                     text=msg,
+                                     parse_mode=ParseMode.MARKDOWN)
 
 
 def text(update, context):
@@ -256,36 +231,54 @@ def text(update, context):
     text = update.message.text
     try:
         if user_state[user_id] == 'refill':
-            if text.isdigit():
+            try:
                 resin = int(text)
-                try:
-                    threads[user_id][0].set()
-                except KeyError:
-                    pass
-                set_resin(user_id, resin)
+            except ValueError:
                 update.message.reply_text(
-                    "Ok. I have updated your resin to value: {}".format(resin),
+                    ("{} te nandayo! "
+                     "You must give an integer value and lower than {}.")
+                    .format(text, util.MAX_RESIN),
                     quote=True)
-                user_state[user_id] = 'timer'
-                context.bot.send_message(
-                    chat_id=user_id,
-                    text=("Now tell me when you will get the next resin. "
-                          "Use format mm:ss"))
             else:
-                update.message.reply_text(
-                    "{} te nandayo!!. You must give an integer value!"
-                    .format(text),
-                    quote=True)
+                if resin > util.MAX_RESIN:
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=("You can't have more than {} resin! "
+                              .format(util.MAX_RESIN)))
+                else:
+                    try:
+                        threads[user_id][0].set()
+                    except KeyError:
+                        pass
+
+                    util.set_resin(user_id, resin)
+
+                    update.message.reply_text(
+                        "Ok. I have updated your resin to value: {}."
+                        .format(resin),
+                        quote=True)
+                    user_state[user_id] = 'timer'
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=("Now tell me when you will get the next resin. "
+                              "Use format mm:ss."))
         elif user_state[user_id] == 'timer':
             try:
                 fmt = "%M:%S"
                 datetime_obj = datetime.strptime(text, fmt)
+            except ValueError:
+                update.message.reply_text(
+                    "{} te nandayo! Use the format mm:ss!".format(text),
+                    quote=True)
+            else:
                 seconds = (int(datetime_obj.strftime('%M')) * 60
                            + int(datetime_obj.strftime('%S')))
 
                 resin_flag = Event()
-                resin_thread = ResinThread(resin_flag, user_id,
-                                           seconds, get_warn(user_id), context)
+                resin_thread = util.ResinThread(resin_flag, user_id,
+                                                seconds,
+                                                util.get_warn(user_id),
+                                                context)
                 threads[user_id] = (resin_flag, resin_thread)
                 resin_thread.start()
 
@@ -293,24 +286,27 @@ def text(update, context):
                     "Perfect. I'm tracking your resin.",
                     quote=True)
 
+        elif user_state[user_id] == 'warn':
+            try:
+                warn = int(text)
             except ValueError:
                 update.message.reply_text(
-                    "{} bad format! Use the format mm:ss".format(text),
+                    "{} te nandayo!!. You must give an integer value!"
+                    .format(text),
                     quote=True)
-            pass
-        elif user_state[user_id] == 'warn':
-            if text.isdigit():
-                warn = int(text)
-                set_warn(user_id, warn)
+            else:
+                if warn > util.MAX_RESIN:
+                    context.bot.send_message(
+                        chat_id=user_id,
+                        text=("I can't notify you above {} resin! "
+                              .format(util.MAX_RESIN)))
+
+                util.set_warn(user_id, warn)
+
                 update.message.reply_text(
                     ("Ok. I have updated your resin warning to value: {}. "
                      "You must /refill again to update the warning.")
                     .format(warn),
-                    quote=True)
-            else:
-                update.message.reply_text(
-                    "{} te nandayo!!. You must give an integer value!"
-                    .format(text),
                     quote=True)
         else:
             update.message.reply_text(
@@ -324,6 +320,16 @@ def text(update, context):
             quote=True)
 
 
+def warn_users(updater):
+    msg = ("*Announcement:* Bot is restarting, all tracking are lost. "
+           "Refill your resin!")
+    users = util.get_users()
+    for user, in users:
+        updater.bot.send_message(chat_id=user,
+                                 text=msg,
+                                 parse_mode=ParseMode.MARKDOWN)
+
+
 if __name__ == '__main__':
     logging.basicConfig(format=('%(asctime)s - %(name)s - '
                                 '%(levelname)s - %(message)s'),
@@ -332,7 +338,7 @@ if __name__ == '__main__':
     with open(".apikey", 'r') as f:
         API_KEY = f.read().strip()
 
-    set_up_db()
+    util.set_up_db()
 
     updater = Updater(token=API_KEY, use_context=True)
     dispatcher = updater.dispatcher
@@ -340,20 +346,34 @@ if __name__ == '__main__':
     start_handler = CommandHandler('start', start)
     dispatcher.add_handler(start_handler)
 
-    stop_handler = CommandHandler('stop', stop)
-    dispatcher.add_handler(stop_handler)
+    refill_handler = CommandHandler('refill', refill)
+    dispatcher.add_handler(refill_handler)
 
     warn_handler = CommandHandler('warn', warn)
     dispatcher.add_handler(warn_handler)
 
-    refill_handler = CommandHandler('refill', refill)
-    dispatcher.add_handler(refill_handler)
-
     myresin_handler = CommandHandler('myresin', myresin)
     dispatcher.add_handler(myresin_handler)
+
+    notrack_handler = CommandHandler('notrack', notrack)
+    dispatcher.add_handler(notrack_handler)
+
+    help_handler = CommandHandler('help', bothelp)
+    dispatcher.add_handler(help_handler)
+
+    cancel_handler = CommandHandler('cancel', cancel)
+    dispatcher.add_handler(cancel_handler)
+
+    stop_handler = CommandHandler('stop', stop)
+    dispatcher.add_handler(stop_handler)
+
+    announce_handler = CommandHandler('announce', announce)
+    dispatcher.add_handler(announce_handler)
 
     text_handler = MessageHandler(Filters.text, text)
     dispatcher.add_handler(text_handler)
 
     updater.start_polling()
     updater.idle()
+
+    warn_users(updater)
