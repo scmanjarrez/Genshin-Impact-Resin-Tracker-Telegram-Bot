@@ -1,9 +1,12 @@
+from telegram.error import Unauthorized
 from threading import Thread
+from paimon import bot_blocked
 import sqlite3
 
 
-MAX_RESIN = 120
 
+MAX_RESIN = 120
+RESIN_REGEN_MIN = 8
 
 def set_up_db():
     db = sqlite3.connect('paimon.db')
@@ -33,19 +36,7 @@ def is_user_in_db(user_id):
     return exist
 
 
-def get_users():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT user_id '
-         'FROM users')
-    )
-    user_list = cur.fetchall()
-    db.close()
-    return user_list
-
-
-def delete_from_db(user_id):
+def delete_user_from_db(user_id):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
@@ -58,18 +49,16 @@ def delete_from_db(user_id):
     db.close()
 
 
-def get_resin(user_id):
+def get_users():
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT resin '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+        ('SELECT user_id '
+         'FROM users')
     )
-    resin = cur.fetchone()[0]  # (x,)
+    user_list = cur.fetchall()
     db.close()
-    return resin
+    return user_list
 
 
 def get_warn(user_id):
@@ -108,17 +97,18 @@ def set_warn(user_id, warn):
     db.close()
 
 
-def inc_resin(user_id):
+def get_resin(user_id):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('UPDATE users '
-         'SET resin = resin + 1 '
+        ('SELECT resin '
+         'FROM users '
          'WHERE user_id = ?'),
         [user_id]
     )
-    db.commit()
+    resin = cur.fetchone()[0]  # (x,)
     db.close()
+    return resin
 
 
 def set_resin(user_id, resin):
@@ -143,6 +133,32 @@ def set_resin(user_id, resin):
     db.close()
 
 
+def inc_resin(user_id):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET resin = resin + 1 '
+         'WHERE user_id = ?'),
+        [user_id]
+    )
+    db.commit()
+    db.close()
+
+
+def dec_resin(user_id, resin):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET resin = resin - ? '
+         'WHERE user_id = ?'),
+        [resin, user_id]
+    )
+    db.commit()
+    db.close()
+
+
 class ResinThread(Thread):
     def __init__(self, event, user_id, current_timer, warn, context):
         Thread.__init__(self)
@@ -157,26 +173,35 @@ class ResinThread(Thread):
 
     def run(self):
         while not self.stopped.wait(self.current_timer):
-            inc_resin(self.user_id)
             resin = get_resin(self.user_id)
-            if resin >= self.warn and not self.notified:
-                self.context.bot.send_message(
-                    chat_id=self.user_id,
-                    text="Hey! You have {} resin waiting! Don't let it lose."
-                    .format(resin)
-                )
-                self.notified = True
-            elif resin == MAX_RESIN and not self.maxreached:
+            if resin >= MAX_RESIN:
                 self.stopped.set()
-                self.context.bot.send_message(
-                    chat_id=self.user_id,
-                    text=("Hey! You have {} resin waiting! "
-                          "You won't gain more resin!.")
-                    .format(resin)
-                )
-                self.maxreached = True
-            elif resin < self.warn:
-                self.notified = False
-                self.maxreached = False
+            else:
+                self.current_timer = RESIN_REGEN_MIN * 60
+                inc_resin(self.user_id)
+                resin = get_resin(self.user_id)
 
-            self.current_timer = 480
+                if self.warn <= resin < MAX_RESIN and not self.notified:
+                    try:
+                        self.context.bot.send_message(
+                            chat_id=self.user_id,
+                            text="Hey! You have {} resin waiting! Don't let it lose."
+                            .format(resin))
+                    except:
+                        bot_blocked(self.user_id)
+                    finally:
+                        self.notified = True
+                elif resin >= MAX_RESIN and not self.maxreached:
+                    self.stopped.set()
+                    self.maxreached = True
+                    try:
+                        self.context.bot.send_message(
+                            chat_id=self.user_id,
+                            text=("Hey! You have {} resin waiting! "
+                                  "You won't gain more resin!")
+                            .format(resin))
+                    except Unauthorized:
+                        bot_blocked(self.user_id)
+                elif resin < self.warn:
+                    self.notified = False
+                    self.maxreached = False
