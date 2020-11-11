@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from telegram.ext import (Updater, CommandHandler,
+                          MessageHandler, Filters, CallbackQueryHandler)
 from telegram.error import Unauthorized
-from telegram import ParseMode
+from telegram import ParseMode, InlineKeyboardButton, InlineKeyboardMarkup
 from datetime import datetime
 from threading import Event
 import util
@@ -60,11 +61,35 @@ def warn_not_started(update):
                   "before you can use it!"))
 
 
-def send_message(update, msg):
+def send_message(update, msg, quote=True, reply_markup=None, markdown=False):
     try:
-        update.message.reply_text(msg, quote=True)
+        reply = getattr(update.message, 'reply_text')
+        if markdown:
+            reply = getattr(update.message, 'reply_markdown')
+        try:
+            reply(msg, quote=quote,
+                  reply_markup=reply_markup)
+        except Unauthorized:
+            bot_blocked(update.effective_message.chat.id)
+    except AttributeError:
+        reply = getattr(update.callback_query.message, 'reply_text')
+        if markdown:
+            reply = getattr(update.callback_query.message, 'reply_markdown')
+        try:
+            reply(msg, quote=quote,
+                  reply_markup=reply_markup)
+        except AttributeError:
+            print("Error: send_message({update})")
+
+
+def send_message_bot(bot, user_id, msg, reply_markup=None):
+    try:
+        bot.send_message(chat_id=user_id,
+                         text=msg,
+                         parse_mode=ParseMode.MARKDOWN,
+                         reply_markup=reply_markup)
     except Unauthorized:
-        bot_blocked(update.effective_message.chat.id)
+        bot_blocked(user_id)
 
 
 def start(update, context):
@@ -426,6 +451,11 @@ def bothelp(update, context):
 
                       "➡ /notrack Stop resin tracking.\n"
 
+                      "➡ /notifycodes Enable automatic notifications "
+                      "when new promo code is active.\n"
+
+                      "➡ /activecodes List current active promo codes.\n"
+
                       "➡ /help Show bot usage.\n"
 
                       "➡ /cancel Cancel any pending operation.\n"
@@ -462,15 +492,10 @@ def announce(update, context):
         admin_id = f.read().strip()
 
     if int(user_id) == int(admin_id):
-        msg = "*Announcement:* " + " ".join(context.args)
+        msg = "‼ *Announcement:* " + " ".join(context.args) + " ‼"
         users = util.get_users()
         for user, in users:
-            try:
-                context.bot.send_message(chat_id=user,
-                                         text=msg,
-                                         parse_mode=ParseMode.MARKDOWN)
-            except Unauthorized:
-                bot_blocked(user)
+            send_message_bot(context.bot, user, msg)
 
 
 def text(update, context):
@@ -637,13 +662,135 @@ def text(update, context):
 
 
 def notify_restart(updater):
-    msg = ("*Announcement:* Bot is restarting, all tracking are lost. "
-           "Please, refill your resin.")
+    msg = ("🚫 Bot is restarting, all tracking are lost 🚫\n"
+           "⚠ Please, refill your resin ⚠")
     users = util.get_users()
     for user, in users:
-        updater.bot.send_message(chat_id=user,
-                                 text=msg,
-                                 parse_mode=ParseMode.MARKDOWN)
+        send_message_bot(updater.bot, user, msg)
+
+
+def notify_promo_codes(updater):
+    if util.is_code_unnotified():
+        keyboard = [
+            [
+                InlineKeyboardButton("Rewards", callback_data='rew'),
+                InlineKeyboardButton("EU", callback_data='eu'),
+                InlineKeyboardButton("NA", callback_data='na'),
+                InlineKeyboardButton("SEA", callback_data='sea')
+            ],
+            [InlineKeyboardButton("Redeem", callback_data='redeem')],
+        ]
+
+        for idx, code in enumerate(util.get_unnotified_codes()):
+            eu_code, na_code, sea_code, rewards = code
+            keyboard.insert(
+                len(keyboard) - 1,
+                [InlineKeyboardButton(f"{rewards}",
+                                      callback_data=f'Rewards: {rewards}'),
+                 InlineKeyboardButton(f"{eu_code}",
+                                      callback_data=f'EU Code: {eu_code}'),
+                 InlineKeyboardButton(f"{na_code}",
+                                      callback_data=f'NA Code: {na_code}'),
+                 InlineKeyboardButton(f"{sea_code}",
+                                      callback_data=f'SEA Code: {sea_code}')])
+            util.code_notified(eu_code)
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        users = util.get_users()
+
+        for user, in users:
+            if util.notify_codes_allowed(user):
+                send_message_bot(updater.bot, user,
+                                 ("🎁 *Hurry up! "
+                                  "New promo code(s) active* 🎁"),
+                                 reply_markup=reply_markup)
+
+
+def active_codes(update, context):
+    keyboard = [
+        [
+            InlineKeyboardButton("Rewards", callback_data='rew'),
+            InlineKeyboardButton("EU", callback_data='eu'),
+            InlineKeyboardButton("NA", callback_data='na'),
+            InlineKeyboardButton("SEA", callback_data='sea')
+        ],
+        [InlineKeyboardButton("Redeem", callback_data='redeem')],
+    ]
+
+    for idx, code in enumerate(util.get_unexpired_codes()):
+        eu_code, na_code, sea_code, rewards = code
+        keyboard.insert(
+            len(keyboard) - 1,
+            [InlineKeyboardButton(f"{rewards}",
+                                  callback_data=f'Rewards: {rewards}'),
+             InlineKeyboardButton(f"{eu_code}",
+                                  callback_data=f'EU Code: {eu_code}'),
+             InlineKeyboardButton(f"{na_code}",
+                                  callback_data=f'NA Code: {na_code}'),
+             InlineKeyboardButton(f"{sea_code}",
+                                  callback_data=f'SEA Code: {sea_code}')])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    send_message(update,
+                 "🎁 *Promo code(s) active* 🎁",
+                 reply_markup=reply_markup,
+                 markdown=True)
+
+
+def switch_notify_codes(update, context):
+    user_id = update.effective_message.chat.id
+    allowed = util.notify_codes_allowed(user_id)
+    keyboard = [
+        [
+            InlineKeyboardButton(f"Notify new codes: "
+                                 f"{'Yes' if allowed else 'No'}",
+                                 callback_data='allow_codes'),
+         ]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    send_message(update,
+                 "Allow new promo code notifications",
+                 reply_markup=reply_markup)
+
+
+def button(update, context):
+    query = update.callback_query
+    query.answer()
+
+    if query.data == 'redeem':
+        send_message(update,
+                     ("You can redeem the code in:\n"
+                      "https://genshin.mihoyo.com/en/gift\n"
+                      "Don't forget to match your region!"))
+    elif query.data == 'allow_codes':
+        try:
+            user_id = query.message.chat.id
+        except AttributeError:
+            send_message(update, "Something bad happened. Try again.")
+        else:
+            allowed = util.notify_codes_allowed(user_id)
+            util.notify_codes_allow(user_id, not allowed)
+
+            keyboard = [
+                [
+                    InlineKeyboardButton(f"Notify new codes: "
+                                         f"{'Yes' if not allowed else 'No'}",
+                                         callback_data='allow_codes'),
+                ]
+            ]
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            query.edit_message_text(
+                "Allow new promo code notifications",
+                reply_markup=reply_markup,)
+
+    elif query.data not in ('rew', 'eu', 'na', 'sea'):
+        send_message(update, query.data, quote=False)
 
 
 if __name__ == '__main__':
@@ -658,6 +805,10 @@ if __name__ == '__main__':
 
     updater = Updater(token=API_KEY, use_context=True)
     dispatcher = updater.dispatcher
+
+    promo_code_flag = Event()
+    promo_codes_thread = util.PromoCodeThread(promo_code_flag, updater)
+    promo_codes_thread.start()
 
     start_handler = CommandHandler('start', start)
     dispatcher.add_handler(start_handler)
@@ -688,6 +839,13 @@ if __name__ == '__main__':
 
     notrack_handler = CommandHandler('notrack', notrack)
     dispatcher.add_handler(notrack_handler)
+
+    activecodes_handler = CommandHandler('activecodes', active_codes)
+    dispatcher.add_handler(activecodes_handler)
+    dispatcher.add_handler(CallbackQueryHandler(button))
+
+    notifycodes_handler = CommandHandler('notifycodes', switch_notify_codes)
+    dispatcher.add_handler(notifycodes_handler)
 
     help_handler = CommandHandler('help', bothelp)
     dispatcher.add_handler(help_handler)
