@@ -514,6 +514,8 @@ class ResinThread(Thread):
                 self.stopped.set()
             else:
                 self.current_timer = RESIN_REGEN_MIN * 60
+                # debug
+                # self.current_timer = 5
 
                 inc_resin(self.user_id)
 
@@ -540,7 +542,7 @@ class PromoCodeThread(Thread):
         Thread.__init__(self)
         self.stopped = event
         self.url = "https://www.gensh.in/events/promotion-codes"
-        self.row_elem = 5
+        self.row_elem = 6
         self.updater = updater
         self.daemon = True
         self.next_scrap = 5
@@ -562,9 +564,8 @@ class PromoCodeThread(Thread):
                 stripped_codes = [c.text.strip() for c in codes_table]
                 codes = [stripped_codes[i:i+self.row_elem]
                          for i in range(0, len(stripped_codes), self.row_elem)]
-
                 for c in codes:
-                    reward, expired, eu_code, na_code, sea_code = c
+                    _, reward, expired, eu_code, na_code, sea_code = c
                     add_code(reward, expired, eu_code, na_code, sea_code)
 
                 notify_promo_codes(self.updater)
