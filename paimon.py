@@ -703,8 +703,15 @@ def text(update, context):
 
 def notify_restart(updater):
     if updater is not None:
-        msg = ("🚫 Bot is restarting, all tracking are lost 🚫\n"
-               "⚠ Please, refill your resin ⚠")
+        msg = ("⚠ Bot restarted. Please, refill your resin ⚠")
+        users = util.get_users()
+        for user, in users:
+            send_message_bot(updater.bot, user, msg)
+
+
+def notify_shutdown(updater):
+    if updater is not None:
+        msg = ("🚫 Bot is restarting. Trackings will be lost 🚫\n")
         users = util.get_users()
         for user, in users:
             send_message_bot(updater.bot, user, msg)
@@ -908,7 +915,9 @@ if __name__ == '__main__':
     text_handler = MessageHandler(Filters.text, text)
     dispatcher.add_handler(text_handler)
 
+    notify_restart(updater)
+
     updater.start_polling()
     updater.idle()
 
-    notify_restart(updater)
+    notify_shutdown(updater)
