@@ -5,11 +5,12 @@ from bs4 import BeautifulSoup
 import sqlite3
 import requests
 
-
-MAX_RESIN = 160
+RESIN_MAX = 160
 RESIN_REGEN_MIN = 8
-BAN_STRIKE = 100
-WARN_STRIKE = 75
+TRACK_MAX = (7, 5, 9)
+WARN_MAX = (1, 5, 9)
+STRIKE_BAN = 50
+STRIKE_WARN = 25
 CODE_CHECK_HOUR = 6
 
 
@@ -19,330 +20,339 @@ def set_up_db():
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            uid INTEGER PRIMARY KEY,
             resin INTEGER DEFAULT 0,
-            warn INTEGER DEFAULT 110,
-            custom_timezone INTEGER DEFAULT 0,
+            warn INTEGER DEFAULT 1,
+            warn_threshold INTEGER DEFAULT 150,
+            codes_notify INTEGER DEFAULT 0,
             timezone INTEGER DEFAULT 0,
-            warn_strikes INTEGER,
-            notify_codes INTEGER DEFAULT 0
+            timezone_local INTEGER DEFAULT 0,
+            strikes INTEGER DEFAULT 0
         )''')
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS banned_users (
-            user_id INTEGER PRIMARY KEY
+            uid INTEGER PRIMARY KEY
         )''')
 
     cur.execute('''
         CREATE TABLE IF NOT EXISTS promo_codes (
+            rewards TEXT,
+            expired INTEGER DEFAULT 0,
             eu_code TEXT PRIMARY KEY,
             na_code TEXT,
             sea_code TEXT,
-            expired INTEGER DEFAULT 0,
-            rewards TEXT,
             notified INTEGER DEFAULT 0
         )''')
 
-    db.close()
 
-
-def is_user_banned(user_id):
+def strikes(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM banned_users '
-         'WHERE user_id = ?)'),
-        [user_id]
+        ('SELECT strikes '
+         'FROM users '
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
-        exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
+        cstrikes = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: is_user_banned({user_id})")
-        exist = -1
-    db.close()
-    return exist
+        print(f"Error: strikes({uid})")
+        cstrikes = -1
+    return cstrikes
 
 
-def ban_user(user_id):
+def strikes_inc(uid):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET strikes = strikes + 1 '
+         'WHERE uid = ?'),
+        [uid]
+    )
+    db.commit()
+
+
+def strikes_dec(uid):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET strikes = strikes - 1 '
+         'WHERE strikes > 0'
+         'AND uid = ?'),
+        [uid]
+    )
+    db.commit()
+
+
+def user_ban(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('INSERT INTO banned_users '
          'VALUES (?)'),
-        [user_id]
+        [uid]
     )
     db.commit()
-    db.close()
-    bot_blocked(user_id)
+    bot_blocked(uid)
 
 
-def get_strikes(user_id):
+def user_banned(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT warn_strikes '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+        ('SELECT EXISTS ('
+         'SELECT 1 '
+         'FROM banned_users '
+         'WHERE uid = ?)'),
+        [uid]
     )
     try:
-        strikes = cur.fetchone()[0]  # (x,)
+        banned = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
     except TypeError:
-        print(f"Error: get_strikes({user_id})")
-        strikes = -1
-    db.close()
-    return strikes
+        print(f"Error: user_banned({uid})")
+        banned = -1
+    return banned
 
 
-def inc_strike(user_id):
+def user_exists(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('UPDATE users '
-         'SET warn_strikes = warn_strikes + 1 '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-
-
-def dec_strike(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur_strikes = get_strikes(user_id)
-    if cur_strikes > 0:
-        cur.execute(
-            ('UPDATE users '
-             'SET warn_strikes = warn_strikes - 1 '
-             'WHERE user_id = ?'),
-            [user_id]
-        )
-    db.commit()
-    db.close()
-
-
-def is_user_in_db(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
+        ('SELECT EXISTS ('
          'SELECT 1 '
          'FROM users '
-         'WHERE user_id = ?)'),
-        [user_id]
+         'WHERE uid = ?)'),
+        [uid]
     )
     try:
         exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
     except TypeError:
-        print(f"Error: is_user_in_db({user_id})")
+        print(f"Error: user_exists({uid})")
         exist = -1
-    db.close()
     return exist
 
 
-def delete_user_from_db(user_id):
+def user_add(uid):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('INSERT INTO users (uid) '
+         'VALUES (?)'),
+        [uid]
+    )
+    db.commit()
+
+
+def user_remove(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('DELETE '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     db.commit()
-    db.close()
 
 
-def get_users():
+def users():
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT user_id '
+        ('SELECT uid '
          'FROM users')
     )
     user_list = cur.fetchall()
-    db.close()
     return user_list
 
 
-def get_resin(user_id):
+def resin(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('SELECT resin '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
-        resin = cur.fetchone()[0]  # (x,)
+        cresin = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: get_resin({user_id})")
-        resin = -1
-    db.close()
-    return resin
+        print(f"Error: get_resin({uid})")
+        cresin = -1
+    return cresin
 
 
-def set_resin(user_id, resin):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET resin = ? '
-             'WHERE user_id = ?'),
-            [resin, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, resin) '
-             'VALUES (?, ?)'),
-            [user_id, resin]
-        )
-
-    db.commit()
-    db.close()
-
-
-def inc_resin(user_id):
+def resin_set(uid, sresin):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('UPDATE users '
-         'SET resin = resin + 1 '
-         'WHERE user_id = ?'),
-        [user_id]
+         'SET resin = ? '
+         'WHERE uid = ?'),
+        [sresin, uid]
     )
     db.commit()
-    db.close()
 
 
-def dec_resin(user_id, resin):
+def resin_inc(uid, iresin):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET resin = resin + ? '
+         'WHERE uid = ?'),
+        [iresin, uid]
+    )
+    db.commit()
+
+
+def resin_dec(uid, dresin):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('UPDATE users '
          'SET resin = resin - ? '
-         'WHERE user_id = ?'),
-        [resin, user_id]
+         'WHERE uid = ?'),
+        [dresin, uid]
     )
     db.commit()
-    db.close()
 
 
-def max_resin(user_id):
-    cur_resin = get_resin(user_id)
-    captime = (MAX_RESIN - cur_resin) * RESIN_REGEN_MIN
-    return captime // 60, captime % 60
+def resin_max(uid):
+    cresin = resin(uid)
+    cwarn = warn_threshold(uid)
+    hcap = (RESIN_MAX - cresin) * RESIN_REGEN_MIN
+    scap = (cwarn - cresin) * RESIN_REGEN_MIN
+    scap = 0 if scap < 0 else scap
+    return (hcap // 60, hcap % 60), (scap // 60, scap % 60)
 
 
-def get_warn(user_id):
+def warn_allowed(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('SELECT warn '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
-        warn = cur.fetchone()[0]  # (x,)
+        allowed = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: get_warn({user_id})")
-        warn = -1
-    db.close()
-    return warn
+        print(f"Error: warn_allowed({uid})")
+        allowed = -1
+    return allowed
 
 
-def set_warn(user_id, warn):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET warn = ? '
-             'WHERE user_id = ?'),
-            [warn, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, warn) '
-             'VALUES (?, ?)'),
-            [user_id, warn]
-        )
-
-    db.commit()
-    db.close()
-
-
-def custom_timezone(user_id):
+def warn_toggle(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT custom_timezone '
+        ('UPDATE users '
+         'SET warn = NOT warn '
+         'WHERE uid = ?'),
+        [uid]
+    )
+    db.commit()
+
+
+def warn_threshold(uid):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('SELECT warn_threshold '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
-        custom_timezone = cur.fetchone()[0]  # (x,)
+        cthreshold = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: custom_timezone({user_id})")
-        custom_timezone = -1
-    db.close()
-    return custom_timezone
+        print(f"Error: warn({uid})")
+        cthreshold = -1
+    return cthreshold
 
 
-def get_timezone(user_id):
+def warn_threshold_set(uid, th):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE users '
+         'SET warn_threshold = ? '
+         'WHERE uid = ?'),
+        [th, uid]
+    )
+    db.commit()
+
+
+def timezone(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('SELECT timezone '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
-        timezone = cur.fetchone()[0]  # (x,)
+        ctimezone = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: get_timezone({user_id})")
-        timezone = -1
-    db.close()
-    return timezone
+        print(f"Error: timezone({uid})")
+        ctimezone = -1
+    return ctimezone
 
 
-def set_timezone(user_id, timezone):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET custom_timezone = 1, timezone = ? '
-             'WHERE user_id = ?'),
-            [timezone, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, custom_timezone, timezone) '
-             'VALUES (?, 1, ?)'),
-            [user_id, timezone]
-        )
-
-    db.commit()
-    db.close()
-
-
-def is_code_in_db(code):
+def timezone_toggle(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT EXISTS('
+        ('UPDATE users '
+         'SET timezone = NOT timezone '
+         'WHERE uid = ?'),
+        [uid]
+    )
+    db.commit()
+
+
+def timezone_local(uid):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('SELECT timezone_local '
+         'FROM users '
+         'WHERE uid = ?'),
+        [uid]
+    )
+    try:
+        tz = cur.fetchone()[0]  # (x,)
+    except TypeError:
+        print(f"Error: timezone_local({uid})")
+        tz = -1
+    return tz
+
+
+def timezone_local_set(uid, tz):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('UPDATE timezone_local '
+         'SET timezone_local = ? '
+         'WHERE uid = ?'),
+        [tz, uid]
+    )
+    db.commit()
+
+
+def code_exists(code):
+    db = sqlite3.connect('paimon.db')
+    cur = db.cursor()
+    cur.execute(
+        ('SELECT EXISTS ('
          'SELECT 1 '
          'FROM promo_codes '
          'WHERE eu_code = ?)'),
@@ -353,7 +363,6 @@ def is_code_in_db(code):
     except TypeError:
         print(f"Error: code_in_db({code})")
         exist = -1
-    db.close()
     return exist
 
 
@@ -361,11 +370,10 @@ def _is_expired(expired):
     return int(expired.lower() == 'yes')
 
 
-def add_code(rewards, expired, eu_code, na_code, sea_code):
+def code_add(rewards, expired, eu_code, na_code, sea_code):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
-
-    if is_code_in_db(eu_code):
+    if code_exists(eu_code):
         cur.execute(
             ('UPDATE promo_codes '
              'SET expired = ? '
@@ -383,10 +391,9 @@ def add_code(rewards, expired, eu_code, na_code, sea_code):
         )
 
     db.commit()
-    db.close()
 
 
-def code_notified(code):
+def code_notify(code):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
@@ -396,10 +403,9 @@ def code_notified(code):
         [code]
     )
     db.commit()
-    db.close()
 
 
-def is_code_unnotified():
+def codes_unnotified_exists():
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
@@ -411,30 +417,28 @@ def is_code_unnotified():
     try:
         exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
     except TypeError:
-        print("Error: is_code_unnotified()")
+        print("Error: code_unnotified_exists()")
         exist = -1
-    db.close()
     return exist
 
 
-def get_unnotified_codes():
+def codes_unnotified():
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('SELECT eu_code, na_code, sea_code, rewards '
          'FROM promo_codes '
-         'WHERE notified = 0')
+         'WHERE notified = 0 AND expired = 0')
     )
     try:
         exist = cur.fetchall()
     except TypeError:
-        print("Error: get_unnotified_codes()")
+        print("Error: codes_unnotified()")
         exist = -1
-    db.close()
     return exist
 
 
-def get_unexpired_codes():
+def codes_unexpired():
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
@@ -445,48 +449,45 @@ def get_unexpired_codes():
     try:
         exist = cur.fetchall()
     except TypeError:
-        print("Error: get_unexpired_codes()")
+        print("Error: codes_unexpired()")
         exist = -1
-    db.close()
     return exist
 
 
-def notify_codes_allowed(user_id):
+def codes_notify_allowed(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('SELECT notify_codes '
+        ('SELECT codes_notify '
          'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
+         'WHERE uid = ?'),
+        [uid]
     )
     try:
         allowed = cur.fetchone()[0]  # (x,)
     except TypeError:
-        print(f"Error: notify_codes_allowed({user_id})")
+        print(f"Error: codes_notify({uid})")
         allowed = -1
-    db.close()
     return allowed
 
 
-def notify_codes_allow(user_id, allow):
+def codes_notify_toggle(uid):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
         ('UPDATE users '
-         'SET notify_codes = ? '
-         'WHERE user_id = ?'),
-        [allow, user_id]
+         'SET codes_notify = NOT codes_notify '
+         'WHERE uid = ?'),
+        [uid]
     )
     db.commit()
-    db.close()
 
 
 class ResinThread(Thread):
-    def __init__(self, event, user_id, current_timer, context):
+    def __init__(self, event, uid, current_timer, context):
         Thread.__init__(self)
         self.stopped = event
-        self.user_id = user_id
+        self.uid = uid
         self.current_timer = current_timer
         self.notified = False
         self.maxreached = False
@@ -496,9 +497,9 @@ class ResinThread(Thread):
     def notify(self, msg, cap=False):
         try:
             self.context.bot.send_message(
-                chat_id=self.user_id, text=msg)
+                chat_id=self.uid, text=msg)
         except Unauthorized:
-            bot_blocked(self.user_id)
+            bot_blocked(self.uid)
             self.stopped.set()
         finally:
             if cap:
@@ -508,31 +509,31 @@ class ResinThread(Thread):
 
     def run(self):
         while not self.stopped.wait(self.current_timer):
-            resin = get_resin(self.user_id)
+            cresin = resin(self.uid)
 
-            if resin >= MAX_RESIN:
+            if cresin >= RESIN_MAX:
                 self.stopped.set()
             else:
                 self.current_timer = RESIN_REGEN_MIN * 60
                 # debug
                 # self.current_timer = 5
 
-                inc_resin(self.user_id)
+                resin_inc(self.uid, 1)
 
-                resin = get_resin(self.user_id)
-                warn = get_warn(self.user_id)
+                cresin = resin(self.uid)
+                cwarn = warn_threshold(self.uid)
 
-                if warn <= resin < MAX_RESIN and not self.notified:
+                if cwarn <= cresin < RESIN_MAX and not self.notified:
                     self.notify(
-                        (f"‼ Hey! You have {resin} resin waiting!\n"
+                        (f"‼ Hey! You have {cresin} resin waiting!\n"
                          f"Don't let it lose ‼"))
-                elif resin >= MAX_RESIN and not self.maxreached:
+                elif cresin >= RESIN_MAX and not self.maxreached:
                     self.notify(
-                        (f"‼ Hey! You have {resin} resin waiting!\n"
+                        (f"‼ Hey! You have {cresin} resin waiting!\n"
                          "You won't earn more resin! ‼"),
                         cap=True)
                     self.stopped.set()
-                elif resin < warn:
+                elif cresin < cwarn:
                     self.notified = False
                     self.maxreached = False
 
@@ -566,6 +567,6 @@ class PromoCodeThread(Thread):
                          for i in range(0, len(stripped_codes), self.row_elem)]
                 for c in codes:
                     _, reward, expired, eu_code, na_code, sea_code = c
-                    add_code(reward, expired, eu_code, na_code, sea_code)
+                    code_add(reward, expired, eu_code, na_code, sea_code)
 
                 notify_promo_codes(self.updater)
