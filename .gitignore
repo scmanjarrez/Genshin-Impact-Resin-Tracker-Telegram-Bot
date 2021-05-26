@@ -1,3 +1,6 @@
+# custom
+.idea
+server/
 paimon.db
 .apikey
 .adminid

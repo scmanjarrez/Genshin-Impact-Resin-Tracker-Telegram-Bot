@@ -240,6 +240,7 @@ def spend(update, context):
             if not util.user_exists(uid):
                 warn_not_started(update)
             else:
+                pass
 
 def track(update, context):
     if update is not None:
@@ -929,6 +930,539 @@ def resin_cap(uid, tc=None):
         return (hc_hour, hc_min, hhour, hmin), (sc_hour, sc_min, shour, smin)
     else:
         return (hc_hour, hc_min, None, None), (sc_hour, sc_min, None, None)
+
+
+def main_menu(update):
+    keyboard = [[InlineKeyboardButton("🌙 Resin 🌙",
+                                      callback_data='resin_menu')],
+                [InlineKeyboardButton("🎁 Promotion Codes 🎁",
+                                      callback_data='codes_menu')],
+                [InlineKeyboardButton("⚙️ Settings ⚙️",
+                                      callback_data='settings_menu')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "What do you want to do?", reply_markup=reply_markup)
+
+
+def resin_menu(update):
+    uid = update.effective_message.chat.id
+    cresin = util.resin(uid)
+    cwarn = util.warn_threshold(uid)
+    hcinfo, scinfo = resin_cap(uid)
+    hc, sc = resin_cap_format(hcinfo, scinfo, cwarn)
+    tracking = '🟢' if uid in threads else '🔴'
+    keyboard = [
+        [InlineKeyboardButton(f"🌙 {cresin} 🌙",
+                              callback_data='resin_menu'),
+         InlineKeyboardButton(f"Tracking: {tracking}",
+                              callback_data='tracking_menu')],
+        [InlineKeyboardButton(sc,
+                              callback_data='resin_menu'),
+         InlineKeyboardButton(hc,
+                              callback_data='resin_menu')],
+        [InlineKeyboardButton("Spend Resin",
+                              callback_data='spend_menu'),
+         InlineKeyboardButton("Refill Resin",
+                              callback_data='refill_menu')],
+        [InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "What do you want to do?", reply_markup=reply_markup)
+
+
+def tracking_menu(update):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'track' not in user_state_menu[uid]:
+        user_state_menu[uid]['track'] = list(util.TRACK_MAX)
+    strack = user_state_menu[uid]['track']
+    tracking = uid in threads
+    trck_icon = '🟢' if tracking else '🔴'
+    keyboard = [
+        [InlineKeyboardButton(f"Tracking: {trck_icon}",
+                              callback_data='tracking_menu')],
+        [InlineKeyboardButton("« Back to Resin",
+                              callback_data='resin_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    if tracking:
+        keyboard.insert(1,
+                        [InlineKeyboardButton("Stop Tracking",
+                                              callback_data='tracking_stop')])
+    else:
+        keyboard.insert(1,
+                        [InlineKeyboardButton("˄",
+                                              callback_data='tracking_up0'),
+                         InlineKeyboardButton(" ",
+                                              callback_data='nop'),
+                         InlineKeyboardButton("˄",
+                                              callback_data='tracking_up1'),
+                         InlineKeyboardButton("˄",
+                                              callback_data='tracking_up2')])
+        keyboard.insert(2,
+                        [InlineKeyboardButton(strack[0],
+                                              callback_data='nop'),
+                         InlineKeyboardButton(":",
+                                              callback_data='nop'),
+                         InlineKeyboardButton(strack[1],
+                                              callback_data='nop'),
+                         InlineKeyboardButton(strack[2],
+                                              callback_data='nop')])
+        keyboard.insert(3,
+                        [InlineKeyboardButton("˅",
+                                              callback_data='tracking_down0'),
+                         InlineKeyboardButton(" ",
+                                              callback_data='nop'),
+                         InlineKeyboardButton("˅",
+                                              callback_data='tracking_down1'),
+                         InlineKeyboardButton("˅",
+                                              callback_data='tracking_down2')])
+        keyboard.insert(4,
+                        [InlineKeyboardButton("Start Tracking",
+                                              callback_data='tracking_start')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "What is your timer?", reply_markup=reply_markup)
+
+
+def tracking_start(update, context):
+    uid = update.effective_message.chat.id
+    mm = int(update.callback_query.message.reply_markup
+             .inline_keyboard[2][0]['text'])
+    s1 = int(update.callback_query.message.reply_markup
+             .inline_keyboard[2][2]['text'])
+    s2 = int(update.callback_query.message.reply_markup
+             .inline_keyboard[2][3]['text'])
+    if uid in threads:
+        threads[uid][0].set()
+    resin_flag = Event()
+    resin_thread = util.ResinThread(resin_flag,
+                                    uid,
+                                    mm*60 + s1*10 + s2,
+                                    context)
+    threads[uid] = (resin_flag, resin_thread)
+    resin_thread.start()
+    tracking_menu(update)
+
+
+def tracking_stop(update):
+    uid = update.effective_message.chat.id
+    if uid in threads:
+        threads[uid][0].set()
+        del threads[uid]
+    tracking_menu(update)
+
+
+def tracking_updown(update, up=True):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'track' not in user_state_menu[uid]:
+        user_state_menu[uid]['track'] = list(util.TRACK_MAX)
+    strack = user_state_menu[uid]['track']
+    txt = 'tracking_down'
+    if up:
+        txt = 'tracking_up'
+    pos = int(update.callback_query.data.split(txt)[1])
+    if up:
+        if strack[pos] < util.TRACK_MAX[pos]:
+            strack[pos] += 1
+    else:
+        if strack[pos] > 0:
+            strack[pos] -= 1
+    tracking_menu(update)
+
+
+def spend_menu(update):
+    uid = update.effective_message.chat.id
+    cresin = util.resin(uid)
+    keyboard = [
+        [InlineKeyboardButton(f"🌙 {cresin} 🌙",
+                              callback_data='spend_menu')],
+        [],
+        [InlineKeyboardButton("« Back to Resin", callback_data='resin_menu'),
+         InlineKeyboardButton("« Back to Menu", callback_data='main_menu')]
+    ]
+    if resin >= 10:
+        keyboard[1].append(InlineKeyboardButton("10",
+                                                callback_data='spend_r10'))
+    else:
+        keyboard[1].append(InlineKeyboardButton("No Resin Left!",
+                                                callback_data='nop'))
+    if resin >= 20:
+        keyboard[1].append(InlineKeyboardButton("20",
+                                                callback_data='spend_r20'))
+    if resin >= 40:
+        keyboard[1].append(InlineKeyboardButton("40",
+                                                callback_data='spend_r40'))
+    if resin >= 60:
+        keyboard[1].append(InlineKeyboardButton("60",
+                                                callback_data='spend_r60'))
+    if resin >= 80:
+        keyboard[1].append(InlineKeyboardButton("80",
+                                                callback_data='spend_r80'))
+    if resin >= 120:
+        keyboard[1].append(InlineKeyboardButton("120",
+                                                callback_data='spend_r120'))
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "How many resin do you want to spend?",
+         reply_markup=reply_markup)
+
+
+def spend_resin(update):
+    uid = update.effective_message.chat.id
+    sresin = int(update.callback_query.data.split('spend_r')[1])
+    util.resin_dec(uid, sresin)
+    spend_menu(update)
+
+
+def refill_menu(update):
+    uid = update.effective_message.chat.id
+    cresin = util.resin(uid)
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'refill' not in user_state_menu[uid]:
+        user_state_menu[uid]['refill'] = [0, 0, 0]
+    srefill = user_state_menu[uid]['refill']
+    keyboard = [
+        [InlineKeyboardButton(f"🌙 {cresin} 🌙",
+                              callback_data='refill_menu')],
+        [InlineKeyboardButton("˄",
+                              callback_data='refill_up0'),
+         InlineKeyboardButton("˄",
+                              callback_data='refill_up1'),
+         InlineKeyboardButton("˄",
+                              callback_data='refill_up2')],
+        [InlineKeyboardButton(srefill[0],
+                              callback_data='nop'),
+         InlineKeyboardButton(srefill[1],
+                              callback_data='nop'),
+         InlineKeyboardButton(srefill[2],
+                              callback_data='nop')],
+        [InlineKeyboardButton("˅",
+                              callback_data='refill_down0'),
+         InlineKeyboardButton("˅",
+                              callback_data='refill_down1'),
+         InlineKeyboardButton("˅",
+                              callback_data='refill_down2')],
+        [InlineKeyboardButton("Refill",
+                              callback_data='refill_pool')],
+        [InlineKeyboardButton("« Back to Resin",
+                              callback_data='resin_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "How many resin do you want to refill?",
+         reply_markup=reply_markup)
+
+
+def refill_pool(update):
+    uid = update.effective_message.chat.id
+    r0 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][0]['text'])
+    r1 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][1]['text'])
+    r2 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][2]['text'])
+    irefill = int("".join([r0, r1, r2]))
+    util.resin_inc(uid, irefill)
+    refill_menu(update)
+
+
+def refill_updown(update, up=True):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'refill' not in user_state_menu[uid]:
+        user_state_menu[uid]['refill'] = [0, 0, 0]
+    srefill = user_state_menu[uid]['refill']
+    cresin = util.resin(uid)
+    txt = 'refill_up'
+    if not up:
+        txt = 'refill_down'
+    pos = int(update.callback_query.data.split(txt)[1])
+    if up:
+        srefill[pos] = srefill[pos] + 1 if srefill[pos] < 9 else srefill[pos]
+    else:
+        srefill[pos] = srefill[pos] - 1 if srefill[pos] > 0 else srefill[pos]
+    if int("".join([str(c) for c in srefill])) > util.RESIN_MAX - cresin:
+        user_state_menu[uid]['refill'] = [int(el) for el in f"{util.RESIN_MAX - cresin:03d}"]
+    refill_menu(update)
+
+
+def codes_menu(update):
+    keyboard = [
+        [InlineKeyboardButton("Rewards",
+                              callback_data='rew'),
+         InlineKeyboardButton("EU",
+                              callback_data='eu'),
+         InlineKeyboardButton("NA",
+                              callback_data='na'),
+         InlineKeyboardButton("SEA",
+                              callback_data='sea')],
+        [InlineKeyboardButton("How to redeem?",
+                              callback_data='codes_redeem')],
+        [InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    pre = 'codes_desc'
+    for idx, code in enumerate(util.codes_unexpired()):
+        eu_code, na_code, sea_code, rewards = code
+        keyboard.insert(
+            len(keyboard) - 2,
+            [InlineKeyboardButton(f"{rewards}",
+                                  callback_data=f'{pre}Rewards: {rewards}'),
+             InlineKeyboardButton(f"{eu_code}",
+                                  callback_data=f'{pre}EU Code: {eu_code}'),
+             InlineKeyboardButton(f"{na_code}",
+                                  callback_data=f'{pre}NA Code: {na_code}'),
+             InlineKeyboardButton(f"{sea_code}",
+                                  callback_data=f'{pre}SEA Code: {sea_code}')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "Active promotion codes", reply_markup=reply_markup)
+
+
+def code_menu(update, code):
+    keyboard = [
+        [InlineKeyboardButton("« Back to Active Codes",
+                              callback_data='codes_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    edit_message(update, code, reply_markup=reply_markup)
+
+
+def redeem_menu(update):
+    keyboard = [
+        [InlineKeyboardButton("« Back to Active Codes",
+                              callback_data='codes_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    edit_message(update,
+                 ("Codes can be redeemed in website or in-game:\n"
+                  "Website: https://genshin.mihoyo.com/en/gift\n"
+                  "In-game: Settings - Account - Redeem code."),
+                 reply_markup=reply_markup)
+
+
+def settings_menu(update):
+    keyboard = [
+        [InlineKeyboardButton("⏰ Resin Warnings ⏰",
+                              callback_data='settings_warn_menu')],
+        [InlineKeyboardButton("📣 Promotion Code Notifications 📣",
+                              callback_data='settings_promo_menu')],
+        [InlineKeyboardButton("🌎 Local Time Zone 🌎",
+                              callback_data='settings_timezone_menu')],
+        [InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "What do you want to change?", reply_markup=reply_markup)
+
+
+def settings_warn_menu(update):
+    uid = update.effective_message.chat.id
+    cwarn = util.warn_threshold(uid)
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'warn' not in user_state_menu[uid]:
+        user_state_menu[uid]['warn'] = [int(cw) for cw in f"{cwarn:03d}"]
+    swarn = user_state_menu[uid]['warn']
+    iwarn = '🔔' if util.warn_allowed(uid) else '🔕'
+    keyboard = [
+        [InlineKeyboardButton(f"Threshold: {cwarn}",
+                              callback_data='nop'),
+         InlineKeyboardButton(f"Resin Warnings: {iwarn}",
+                              callback_data='warn_toggle')],
+        [InlineKeyboardButton("˄",
+                              callback_data='warn_up0'),
+         InlineKeyboardButton("˄",
+                              callback_data='warn_up1'),
+         InlineKeyboardButton("˄",
+                              callback_data='warn_up2')],
+        [InlineKeyboardButton(swarn[0],
+                              callback_data='nop'),
+         InlineKeyboardButton(swarn[1],
+                              callback_data='nop'),
+         InlineKeyboardButton(swarn[2],
+                              callback_data='nop')],
+        [InlineKeyboardButton("˅",
+                              callback_data='warn_down0'),
+         InlineKeyboardButton("˅",
+                              callback_data='warn_down1'),
+         InlineKeyboardButton("˅",
+                              callback_data='warn_down2')],
+        [InlineKeyboardButton("Set Warning Threshold",
+                              callback_data='warn_threshold')],
+        [InlineKeyboardButton("« Back to Settings",
+                              callback_data='settings_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "When should I warn you?", reply_markup=reply_markup)
+
+
+def warn_toggle(update):
+    uid = update.effective_message.chat.id
+    util.warn_toggle(uid)
+    settings_warn_menu(update)
+
+
+def warn_threshold(update):
+    uid = update.effective_message.chat.id
+    r0 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][0]['text'])
+    r1 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][1]['text'])
+    r2 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][2]['text'])
+    swarn = int("".join([r0, r1, r2]))
+    util.warn_threshold_set(uid, swarn)
+    settings_warn_menu(update)
+
+
+def warn_updown(update, up=True):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'warn' not in user_state_menu[uid]:
+        user_state_menu[uid]['warn'] = [int(cw)
+                                        for cw
+                                        in f"{util.warn_threshold(uid):03d}"]
+    swarn = user_state_menu[uid]['warn']
+    txt = 'warn_down'
+    if up:
+        txt = 'warn_up'
+    pos = int(update.callback_query.data.split(txt)[1])
+    if up:
+        swarn[pos] = swarn[pos] + 1 if swarn[pos] < 9 else swarn[pos]
+    else:
+        swarn[pos] = swarn[pos] - 1 if swarn[pos] > 0 else swarn[pos]
+    twarn = int("".join([str(c) for c in swarn]))
+    if twarn > 159:
+        user_state_menu[uid]['warn'] = [1, 5, 9]
+    settings_warn_menu(update)
+
+
+def settings_promo_menu(update):
+    uid = update.effective_message.chat.id
+    ipromo = '🔔' if util.codes_notify_allowed(uid) else '🔕'
+    keyboard = [
+        [InlineKeyboardButton(f"Promotion Code Notifications: {ipromo}",
+                              callback_data='promo_toggle')],
+        [InlineKeyboardButton("« Back to Settings",
+                              callback_data='settings_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update,
+         "Do you want to be notified when a promotion code become active?",
+         reply_markup=reply_markup)
+
+
+def promo_toggle(update):
+    uid = update.effective_message.chat.id
+    util.codes_notify_toggle(uid)
+    settings_promo_menu(update)
+
+
+def settings_timezone_menu(update, updown=False):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'timezone' not in user_state_menu[uid]:
+        user_state_menu[uid]['timezone'] = 0
+    ictz = '🟢' if util.timezone(uid) else '🔴'
+    ctzl = util.timezone_local(uid)
+    keyboard = [
+        [InlineKeyboardButton(f"Local Hour: {ctz}",
+                              callback_data='timezone_local'),
+         InlineKeyboardButton(f"Custom Time Zone: {ictz}",
+                              callback_data='timezone_toggle')],
+        [InlineKeyboardButton("« Back to Settings",
+                              callback_data='settings_menu'),
+         InlineKeyboardButton("« Back to Menu",
+                              callback_data='main_menu')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    resp = send_message
+    if update.callback_query is not None:
+        resp = edit_message
+    resp(update, "Do you want personalized hour (based on your time zone)?",
+         reply_markup=reply_markup)
+
+
+def timezone_updown(update, up=True):
+    uid = update.effective_message.chat.id
+    if uid not in user_state_menu:
+        user_state_menu[uid] = {}
+    if 'timezone' not in user_state_menu[uid]:
+        hh = int(datetime.strftime(datetime.now(), '%H'))
+        user_state_menu[uid]['timezone'] = [hh//10, hh%10]
+    stz = user_state_menu[uid]['timezone']
+    txt = 'timezone_down'
+    if up:
+        txt = 'timezone_up'
+    pos = int(update.callback_query.data.split(txt)[1])
+    if up:
+        stz[pos] = stz[pos] + 1 if stz[pos] < 9 else stz[pos]
+    else:
+        stz[pos] = stz[pos] - 1 if stz[pos] > 0 else stz[pos]
+    ttz = int("".join([str(c) for c in stz]))
+    if ttz > 23:
+        user_state_menu[uid]['timezone'] = [2, 3]
+    settings_timezone_menu(update)
+
+
+def timezone_toggle(update):
+    uid = update.effective_message.chat.id
+    util.timezone_toggle(uid)
+    settings_timezone_menu(update)
+
+
+def timezone_set(update):
+    uid = update.effective_message.chat.id
+    r0 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][0]['text'])
+    r1 = (update.callback_query.message.reply_markup
+          .inline_keyboard[2][1]['text'])
+    stz = int("".join([r0, r1]))
+    util.timezone_local_set(uid, stz)
+    settings_timezone_menu(update)
 
 
 def button_handler(update, context):

@@ -12,6 +12,14 @@ WARN_MAX = (1, 5, 9)
 STRIKE_BAN = 50
 STRIKE_WARN = 25
 CODE_CHECK_HOUR = 6
+UTC = [[[(-12, 0), (-11, 0), (-10, 0), (-9, 30), (-9, 0)],
+        [(-8, 0), (-7, 0), (-6, 0), (-5, 0), (-4, 0)],
+        [(-3, 30), (-3, 0), (-2, 0), (-1, 0), (0, 0)],
+        [(1, 0), (2, 0), (3, 0), (3, 30), (4, 0)]],
+       [[(4, 30), (5, 0), (5, 30), (5, 45), (6, 0)],
+        [(6, 30), (7, 0), (8, 0), (8, 45), (9, 0)],
+        [(9, 30), (10, 0), (10, 30), (11, 0), (12, 0)],
+        [(12, 45), (13, 0), (14, 0), ("", ""), ("", "")]]]
 
 
 def set_up_db():
@@ -223,9 +231,12 @@ def resin_dec(uid, dresin):
     db.commit()
 
 
-def resin_max(uid):
+def resin_max(uid, tresin=None):
     cresin = resin(uid)
     cwarn = warn_threshold(uid)
+    if tresin is not None:
+        cwarn = tresin
+
     hcap = (RESIN_MAX - cresin) * RESIN_REGEN_MIN
     scap = (cwarn - cresin) * RESIN_REGEN_MIN
     scap = 0 if scap < 0 else scap
@@ -340,7 +351,7 @@ def timezone_local_set(uid, tz):
     db = sqlite3.connect('paimon.db')
     cur = db.cursor()
     cur.execute(
-        ('UPDATE timezone_local '
+        ('UPDATE users '
          'SET timezone_local = ? '
          'WHERE uid = ?'),
         [tz, uid]
@@ -469,6 +480,60 @@ def codes_notify_allowed(uid):
         print(f"Error: codes_notify({uid})")
         allowed = -1
     return allowed
+
+def warn_user(uid, reason):
+    util.strikes_inc(uid)
+    msg = ["ℹ️ Send /help for a list of commands.\n\n",
+           "⛔ Don't flood the bot or you will be banned ⛔"]
+    if reason == 'cmd':
+        msg.insert(0, "🚫 Unknown command 🚫\n\n")
+    elif reason == 'restarted':
+        msg.insert(0, "❌ Bot restarted and lost all trackings ❌\n\n")
+    cstrikes = util.strikes(uid)
+    if cstrikes >= util.STRIKE_BAN:
+        msg = "⛔ You've been banned for spam/flooding ⛔"
+        util.user_ban(uid)
+    return "".join(msg)
+
+
+def warn_not_started(update):
+    send_message(update, "Send /start before continuing.")
+
+
+def send_message(update, msg, quote=True, reply_markup=None, markdown=False, html=False):
+    if update is not None:
+        if markdown:
+            reply = getattr(update.message, 'reply_markdown_v2')
+        elif html:
+            reply = getattr(update.message, 'reply_html')
+        else:
+            reply = getattr(update.message, 'reply_text')
+        try:
+            reply(msg, quote=quote, reply_markup=reply_markup)
+        except Unauthorized:
+            bot_blocked(update.effective_message.chat.id)
+
+
+def send_message_bot(bot, uid, msg, reply_markup=None, markdown=False):
+    if bot is not None:
+        parse = None
+        if markdown:
+            parse = ParseMode.MARKDOWN
+        try:
+            bot.send_message(chat_id=uid, text=msg, parse_mode=parse,
+                             reply_markup=reply_markup)
+        except Unauthorized:
+            bot_blocked(uid)
+
+
+def edit_message(update, msg, reply_markup):
+    try:
+        update.callback_query.edit_message_text(msg, reply_markup=reply_markup)
+    except BadRequest:
+        pass
+
+
+
 
 
 def codes_notify_toggle(uid):
