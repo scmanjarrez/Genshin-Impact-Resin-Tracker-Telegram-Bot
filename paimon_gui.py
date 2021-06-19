@@ -31,6 +31,11 @@ def button(buttons):
     return [InlineKeyboardButton(bt[0], callback_data=bt[1]) for bt in buttons]
 
 
+def start_menu(update):
+    uid = update.effective_message.chat.id
+    ut.edit(update, "Send /start before continuing.", None)
+
+
 def menu(update, context):
     main_menu(update)
 

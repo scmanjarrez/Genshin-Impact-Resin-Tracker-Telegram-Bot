@@ -20,7 +20,7 @@ def button_handler(update, context):
 
     if not db.banned(uid):
         if not db.cached(uid):
-            ut.not_started(update)
+            gui.start_menu(update)
         else:
             if query.data == 'main_menu':
                 gui.main_menu(update)

@@ -76,10 +76,12 @@ def _synchronized(uid, msg):
 def start(update, context):
     uid = update.effective_message.chat.id
     if not db.banned(uid):
+        msg = f"I'm glad to see you again, Traveler!"
         if not db.cached(uid):
             _state(uid)
             db.add_user(uid)
-            ut.send(update, f"Hi Traveler, I'm Paimon!\n\n{HELP}")
+            msg = f"Hi Traveler, I'm Paimon!\n\n{HELP}"
+        ut.send(update, msg)
 
 
 def bot_help(update, context):
