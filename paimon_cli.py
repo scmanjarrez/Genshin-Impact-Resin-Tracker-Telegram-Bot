@@ -95,7 +95,7 @@ def resin(update, context):
             ut.not_started(update)
         else:
             cur_resin = db.get_resin(uid)
-            msg = (f"❗ Argument must be a number greater than "
+            msg = (f"❗ Argument must be an integer greater than "
                    f"{cur_resin} and lower than {ut.RESIN_MAX}, "
                    f"e.g. /resin, /resin 135")
             if context.args:
@@ -139,7 +139,7 @@ def set_resin(update, context):
         if not db.cached(uid):
             ut.not_started(update)
         else:
-            msg = (f"❗ Argument must be a number lower than {ut.RESIN_MAX}, "
+            msg = (f"❗ Argument must be an integer lower than {ut.RESIN_MAX}, "
                    f"e.g. /set, /set 12")
             if context.args:
                 msg = _set_resin(context.args, uid, msg)
@@ -174,7 +174,7 @@ def spend(update, context):
             ut.not_started(update)
         else:
             cur_resin = db.get_resin(uid)
-            msg = (f"❗ Argument must be a number greater than 0 "
+            msg = (f"❗ Argument must be an integer greater than 0 "
                    f"and lower than {cur_resin}, "
                    f"e.g. /spend, /spend 20")
             if context.args:
@@ -211,7 +211,7 @@ def refill(update, context):
         else:
             cur_resin = db.get_resin(uid)
             max_resin = ut.RESIN_MAX - cur_resin
-            msg = (f"❗ Argument must be a number greater than 0 "
+            msg = (f"❗ Argument must be an integer greater than 0 "
                    f"and lower than {max_resin}, "
                    f"e.g. /refill, /refill 20")
             if context.args:
@@ -293,7 +293,7 @@ def warnings(update, context):
         if not db.cached(uid):
             ut.not_started(update)
         else:
-            msg = (f"❗ Argument must be a number greater than 0 "
+            msg = (f"❗ Argument must be an integer greater than 0 "
                    f"and lower than {ut.RESIN_MAX}, or -1, "
                    f"e.g. /warnings, /warnings -1, /warning 140")
             if context.args:
@@ -408,25 +408,25 @@ def text(update, context):
             args = update.message.text.split()
             if len(args) == 1:
                 if STATE[uid] == ut.CMD.SET:
-                    msg = (f"❗ Value must be a number lower "
+                    msg = (f"❗ Value must be an integer lower "
                            f"than {ut.RESIN_MAX}.")
                     msg = _set_resin(args, uid, msg)
                 elif STATE[uid] == ut.CMD.SPEND:
                     cur_resin = db.get_resin(uid)
-                    msg = (f"❗ Value must be a number greater than 0 "
+                    msg = (f"❗ Value must be an integer greater than 0 "
                            f"and lower than {cur_resin}.")
                     msg = _spend(args, uid, msg, cur_resin)
                 elif STATE[uid] == ut.CMD.REFILL:
                     cur_resin = db.get_resin(uid)
                     max_resin = ut.RESIN_MAX - cur_resin
-                    msg = (f"❗ Value must be a number greater than 0 "
+                    msg = (f"❗ Value must be an integer greater than 0 "
                            f"and lower than {max_resin}.")
                     msg = _refill(args, uid, msg, cur_resin, max_resin)
                 elif STATE[uid] == ut.CMD.TRACK:
                     msg = "❗ Timer must have format: <code>mm:ss</code>."
                     msg = _track(args, context.bot, uid, msg)
                 elif STATE[uid] == ut.CMD.WARN:
-                    msg = (f"❗ Value must be a number greater than 0 "
+                    msg = (f"❗ Value must be an integer greater than 0 "
                            f"and lower than {ut.RESIN_MAX}, "
                            f"or <code>-1</code>.")
                     msg = _warnings(args, uid, msg)

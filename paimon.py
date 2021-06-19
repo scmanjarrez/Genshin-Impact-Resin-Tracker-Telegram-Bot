@@ -11,72 +11,77 @@ import logging
 
 
 def button_handler(update, context):
+    uid = update.effective_message.chat.id
     query = update.callback_query
     try:
         query.answer()
     except BadRequest:
         pass
 
-    if query.data == 'main_menu':
-        gui.main_menu(update)
-    elif query.data == 'resin_menu':
-        gui.resin_menu(update)
-    elif query.data == 'tracking_menu':
-        gui.tracking_menu(update)
-    elif query.data == 'tracking_start':
-        gui.tracking_start(update, context)
-    elif query.data == 'tracking_stop':
-        gui.tracking_stop(update)
-    elif query.data.startswith('tracking_up'):
-        gui.tracking_updown(update)
-    elif query.data.startswith('tracking_down'):
-        gui.tracking_updown(update, up=False)
-    elif query.data == 'spend_menu':
-        gui.spend_menu(update)
-    elif query.data.startswith('spend_r'):
-        gui.spend_resin(update)
-    elif query.data == 'refill_menu':
-        gui.refill_menu(update)
-    elif query.data.startswith('refill_up'):
-        gui.refill_updown(update)
-    elif query.data.startswith('refill_down'):
-        gui.refill_updown(update, up=False)
-    elif query.data == 'refill_r':
-        gui.refill_resin(update)
-    elif query.data == 'codes_menu':
-        gui.codes_menu(update)
-    elif query.data.startswith('codes_desc'):
-        gui.code_menu(update, query.data.split('codes_desc')[1])
-    elif query.data == 'codes_redeem':
-        gui.redeem_menu(update)
-    elif query.data == 'settings_menu':
-        gui.settings_menu(update)
-    elif query.data == 'settings_warn_menu':
-        gui.settings_warn_menu(update)
-    elif query.data == 'warn_toggle':
-        gui.warn_toggle(update)
-    elif query.data == 'warn_threshold':
-        gui.warn_threshold(update)
-    elif query.data.startswith('warn_up'):
-        gui.warn_updown(update)
-    elif query.data.startswith('warn_down'):
-        gui.warn_updown(update, up=False)
-    elif query.data == 'settings_promo_menu':
-        gui.settings_promo_menu(update)
-    elif query.data == 'promo_toggle':
-        gui.promo_toggle(update)
-    elif query.data == 'settings_timezone_menu':
-        gui.settings_timezone_menu(update)
-    elif query.data == 'timezone_menu':
-        gui.timezone_menu(update)
-    elif query.data == 'timezone_disable':
-        gui.timezone_disable(update)
-    elif query.data == 'timezone_set':
-        gui.timezone_set(update)
-    elif query.data.startswith('timezone_up'):
-        gui.timezone_updown(update)
-    elif query.data.startswith('timezone_down'):
-        gui.timezone_updown(update, up=False)
+    if not db.banned(uid):
+        if not db.cached(uid):
+            ut.not_started(update)
+        else:
+            if query.data == 'main_menu':
+                gui.main_menu(update)
+            elif query.data == 'resin_menu':
+                gui.resin_menu(update)
+            elif query.data == 'tracking_menu':
+                gui.tracking_menu(update)
+            elif query.data == 'tracking_start':
+                gui.tracking_start(update, context)
+            elif query.data == 'tracking_stop':
+                gui.tracking_stop(update)
+            elif query.data.startswith('tracking_up'):
+                gui.tracking_updown(update)
+            elif query.data.startswith('tracking_down'):
+                gui.tracking_updown(update, up=False)
+            elif query.data == 'spend_menu':
+                gui.spend_menu(update)
+            elif query.data.startswith('spend_r'):
+                gui.spend_resin(update)
+            elif query.data == 'refill_menu':
+                gui.refill_menu(update)
+            elif query.data.startswith('refill_up'):
+                gui.refill_updown(update)
+            elif query.data.startswith('refill_down'):
+                gui.refill_updown(update, up=False)
+            elif query.data == 'refill_r':
+                gui.refill_resin(update)
+            elif query.data == 'codes_menu':
+                gui.codes_menu(update)
+            elif query.data.startswith('codes_desc'):
+                gui.code_menu(update, query.data.split('codes_desc')[1])
+            elif query.data == 'codes_redeem':
+                gui.redeem_menu(update)
+            elif query.data == 'settings_menu':
+                gui.settings_menu(update)
+            elif query.data == 'settings_warn_menu':
+                gui.settings_warn_menu(update)
+            elif query.data == 'warn_toggle':
+                gui.warn_toggle(update)
+            elif query.data == 'warn_threshold':
+                gui.warn_threshold(update)
+            elif query.data.startswith('warn_up'):
+                gui.warn_updown(update)
+            elif query.data.startswith('warn_down'):
+                gui.warn_updown(update, up=False)
+            elif query.data == 'settings_promo_menu':
+                gui.settings_promo_menu(update)
+            elif query.data == 'promo_toggle':
+                gui.promo_toggle(update)
+            elif query.data == 'settings_timezone_menu':
+                gui.settings_timezone_menu(update)
+            elif query.data == 'timezone_menu':
+                gui.timezone_menu(update)
+            elif query.data == 'timezone_disable':
+                gui.timezone_disable(update)
+            elif query.data == 'timezone_set':
+                gui.timezone_set(update)
+            elif query.data.startswith('timezone_up'):
+                gui.timezone_updown(update)
+            elif query.data.startswith('timezone_down'):
+                gui.timezone_updown(update, up=False)
 
 
 def setup_handlers(dispatch, job_queue):
