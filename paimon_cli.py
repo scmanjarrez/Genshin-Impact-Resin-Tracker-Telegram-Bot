@@ -409,33 +409,37 @@ def text(update, context):
             msg = "❗ Send only one argument, following the format."
             args = update.message.text.split()
             if len(args) == 1:
-                if STATE[uid] == ut.CMD.SET:
-                    msg = (f"❗ Value must be an integer lower "
-                           f"than {ut.RESIN_MAX}.")
-                    msg = _set_resin(args, uid, msg)
-                elif STATE[uid] == ut.CMD.SPEND:
-                    cur_resin = db.get_resin(uid)
-                    msg = (f"❗ Value must be an integer greater than 0 "
-                           f"and lower than {cur_resin}.")
-                    msg = _spend(args, uid, msg, cur_resin)
-                elif STATE[uid] == ut.CMD.REFILL:
-                    cur_resin = db.get_resin(uid)
-                    max_resin = ut.RESIN_MAX - cur_resin
-                    msg = (f"❗ Value must be an integer greater than 0 "
-                           f"and lower than {max_resin}.")
-                    msg = _refill(args, uid, msg, cur_resin, max_resin)
-                elif STATE[uid] == ut.CMD.TRACK:
-                    msg = "❗ Timer must have format: <code>mm:ss</code>."
-                    msg = _track(args, context.bot, uid, msg)
-                elif STATE[uid] == ut.CMD.WARN:
-                    msg = (f"❗ Value must be an integer greater than 0 "
-                           f"and lower than {ut.RESIN_MAX}, "
-                           f"or <code>-1</code>.")
-                    msg = _warnings(args, uid, msg)
-                elif STATE[uid] == ut.CMD.TZ:
-                    msg = ("❗ Hour must have format(24h): <code>hh:mm</code> "
-                           "or <code>-1</code>.")
-                    msg = _timezone(args, uid, msg)
+                if uid in STATE:
+                    if STATE[uid] == ut.CMD.SET:
+                        msg = (f"❗ Value must be an integer lower "
+                               f"than {ut.RESIN_MAX}.")
+                        msg = _set_resin(args, uid, msg)
+                    elif STATE[uid] == ut.CMD.SPEND:
+                        cur_resin = db.get_resin(uid)
+                        msg = (f"❗ Value must be an integer greater than 0 "
+                               f"and lower than {cur_resin}.")
+                        msg = _spend(args, uid, msg, cur_resin)
+                    elif STATE[uid] == ut.CMD.REFILL:
+                        cur_resin = db.get_resin(uid)
+                        max_resin = ut.RESIN_MAX - cur_resin
+                        msg = (f"❗ Value must be an integer greater than 0 "
+                               f"and lower than {max_resin}.")
+                        msg = _refill(args, uid, msg, cur_resin, max_resin)
+                    elif STATE[uid] == ut.CMD.TRACK:
+                        msg = "❗ Timer must have format: <code>mm:ss</code>."
+                        msg = _track(args, context.bot, uid, msg)
+                    elif STATE[uid] == ut.CMD.WARN:
+                        msg = (f"❗ Value must be an integer greater than 0 "
+                               f"and lower than {ut.RESIN_MAX}, "
+                               f"or <code>-1</code>.")
+                        msg = _warnings(args, uid, msg)
+                    elif STATE[uid] == ut.CMD.TZ:
+                        msg = ("❗ Hour must have format(24h): "
+                               "<code>hh:mm</code> "
+                               "or <code>-1</code>.")
+                        msg = _timezone(args, uid, msg)
+                else:
+                    _state(uid)
             ut.send(update, msg)
 
 
