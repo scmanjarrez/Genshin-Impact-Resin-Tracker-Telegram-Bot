@@ -20,7 +20,7 @@ def button_handler(update, context):
 
     if not db.banned(uid):
         if not db.cached(uid):
-            gui.start_menu(update)
+            ut.not_started_gui(update)
         else:
             if query.data == 'main_menu':
                 gui.main_menu(update)
@@ -50,8 +50,9 @@ def button_handler(update, context):
                 gui.refill_resin(update)
             elif query.data == 'codes_menu':
                 gui.codes_menu(update)
-            elif query.data.startswith('codes_desc'):
-                gui.code_menu(update, query.data.split('codes_desc')[1])
+            elif query.data.startswith('code_desc'):
+                ctype, cdata = query.data.split(':')[1:]
+                gui.code_menu(update, ctype, cdata)
             elif query.data == 'codes_redeem':
                 gui.redeem_menu(update)
             elif query.data == 'settings_menu':

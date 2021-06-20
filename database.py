@@ -258,6 +258,15 @@ def add_code(rewards, expired, eu_code, na_code, sea_code):
             db.commit()
 
 
+def info_code(eu_code, info):
+    with closing(sql.connect(DB)) as db:
+        with closing(db.cursor()) as cur:
+            cur.execute(f'SELECT {info} FROM codes '
+                        f'WHERE eu_code = ?',
+                        [eu_code])
+            return cur.fetchone()[0]  # (x,)
+
+
 def mark_codes(codes):
     with closing(sql.connect(DB)) as db:
         with closing(db.cursor()) as cur:

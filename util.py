@@ -6,6 +6,7 @@ import paimon_cli as cli
 import paimon_gui as gui
 import database as db
 import threads as th
+import traceback
 
 RESIN_MAX = 160
 RESIN_REGEN = 8
@@ -196,6 +197,10 @@ def not_started(update):
     send(update, "Send /start before continuing.")
 
 
+def not_started_gui(update):
+    edit(update, "Send /start before continuing.", None)
+
+
 def send(update, msg, quote=True, reply_markup=None):
     try:
         update.message.reply_html(msg, quote=quote, reply_markup=reply_markup,
@@ -217,8 +222,11 @@ def edit(update, msg, reply_markup):
         update.callback_query.edit_message_text(msg, ParseMode.HTML,
                                                 reply_markup=reply_markup,
                                                 disable_web_page_preview=True)
-    except BadRequest:
-        pass
+    except BadRequest as br:
+        if not str(br).startswith("Message is not modified:"):
+            print(f"***  Exception caught in edit "
+                  f"({update.effective_message.chat.id}): ", br)
+            traceback.print_stack()
 
 
 def backup_trackings():

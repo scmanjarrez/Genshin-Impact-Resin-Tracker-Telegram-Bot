@@ -470,12 +470,11 @@ def cancel(update, context):
 def stop(update, context):
     uid = update.effective_message.chat.id
     if not db.banned(uid):
-        if not db.cached(uid):
-            ut.not_started(update)
-        else:
-            ut.send(update,
-                    "All your information has been removed from the bot.")
+        msg = "Bot doesn't have information about you."
+        if db.cached(uid):
             ut.blocked(uid)
+            msg = "Your information has been removed from the bot."
+        ut.send(update, msg)
 
 
 def announce(update, context):

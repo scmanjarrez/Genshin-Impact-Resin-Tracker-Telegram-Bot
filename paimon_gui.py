@@ -31,13 +31,13 @@ def button(buttons):
     return [InlineKeyboardButton(bt[0], callback_data=bt[1]) for bt in buttons]
 
 
-def start_menu(update):
-    uid = update.effective_message.chat.id
-    ut.edit(update, "Send /start before continuing.", None)
-
-
 def menu(update, context):
-    main_menu(update)
+    uid = update.effective_message.chat.id
+    if not db.banned(uid):
+        if not db.cached(uid):
+            ut.not_started(update)
+        else:
+            main_menu(update)
 
 
 def main_menu(update):
@@ -216,21 +216,30 @@ def codes_menu(update):
                   ("EU", 'eu'), ("NA", 'na'), ("SEA", 'sea')]),
           button([("How to redeem?", 'codes_redeem')]),
           button([("« Back to Menu", 'main_menu')])]
-    pre = 'codes_desc'
+    pre = 'code_desc'
     for idx, code in enumerate(db.unexpired_codes()):
         rewards, eu_code, na_code, sea_code = code
         kb.insert(len(kb) - 2,
-                  button([(f"{rewards}", f'{pre}Rewards: {rewards}'),
-                          (f"{eu_code}", f'{pre}EU Code: {eu_code}'),
-                          (f"{na_code}", f'{pre}NA Code: {na_code}'),
-                          (f"{sea_code}", f'{pre}SEA Code: {sea_code}')]))
+                  button([(f"{rewards}", f'{pre}:rewards:{eu_code}'),
+                          (f"{eu_code}", f'{pre}:eu_code:{eu_code}'),
+                          (f"{na_code}", f'{pre}:na_code:{eu_code}'),
+                          (f"{sea_code}", f'{pre}:sea_code:{eu_code}')]))
     ut.edit(update, "Active Promotion Codes", InlineKeyboardMarkup(kb))
 
 
-def code_menu(update, code):
+def code_menu(update, code_type, code_id):
+    if code_type == "rewards":
+        desc = "Rewards"
+    elif code_type == "eu_code":
+        desc = "EU Code"
+    elif code_type == "na_code":
+        desc = "NA Code"
+    elif code_type == "sea_code":
+        desc = "SEA Code"
+    msg = f"<b>{desc}:</b> <code>{db.info_code(code_id, code_type)}</code>"
     kb = [button([("« Back to Active Codes", 'codes_menu'),
                   ("« Back to Menu", 'main_menu')])]
-    ut.edit(update, code, InlineKeyboardMarkup(kb))
+    ut.edit(update, msg, InlineKeyboardMarkup(kb))
 
 
 def redeem_menu(update):
@@ -240,7 +249,7 @@ def redeem_menu(update):
             ("Codes can be redeemed in:\n"
              "<b>Website:</b> https://genshin.mihoyo.com/en/gift\n"
              "<b>In-game:</b> Settings - Account - Redeem code."),
-            reply_markup=InlineKeyboardMarkup(kb))
+            InlineKeyboardMarkup(kb))
 
 
 def settings_menu(update):
