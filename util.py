@@ -1,571 +1,240 @@
-from telegram.error import Unauthorized
-from threading import Thread
-from paimon import bot_blocked, notify_promo_codes
-from bs4 import BeautifulSoup
-import sqlite3
-import requests
+from telegram.error import Unauthorized, BadRequest
+from telegram import ParseMode
+from datetime import datetime
+from enum import Enum
+import paimon_cli as cli
+import paimon_gui as gui
+import database as db
+import threads as th
+import traceback
+
+RESIN_MAX = 160
+RESIN_REGEN = 8
+REFILL_BASE = (0, 6, 0)
+TRACK_MAX = (7, 5, 9)
+WARN_MAX = (1, 5, 9)
+STRIKE_BAN = 75
+TIME_BETWEEN_NOTIFY = 2
+USERS_TO_NOTIFY = 20
 
 
-MAX_RESIN = 160
-RESIN_REGEN_MIN = 8
-BAN_STRIKE = 100
-WARN_STRIKE = 75
-CODE_CHECK_HOUR = 6
+class CMD(Enum):
+    NOP = ''
+    SET = 'set'
+    SPEND = 'spend'
+    REFILL = 'refill'
+    TRACK = 'track'
+    WARN = 'warnings'
+    TZ = 'timezone'
 
 
-def set_up_db():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            resin INTEGER DEFAULT 0,
-            warn INTEGER DEFAULT 110,
-            custom_timezone INTEGER DEFAULT 0,
-            timezone INTEGER DEFAULT 0,
-            warn_strikes INTEGER,
-            notify_codes INTEGER DEFAULT 0
-        )''')
-
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS banned_users (
-            user_id INTEGER PRIMARY KEY
-        )''')
-
-    cur.execute('''
-        CREATE TABLE IF NOT EXISTS promo_codes (
-            eu_code TEXT PRIMARY KEY,
-            na_code TEXT,
-            sea_code TEXT,
-            expired INTEGER DEFAULT 0,
-            rewards TEXT,
-            notified INTEGER DEFAULT 0
-        )''')
-
-    db.close()
+def blocked(uid):
+    th.del_thread(uid)
+    cli.del_state(uid)
+    gui.del_state(uid)
+    db.del_user(uid)
 
 
-def is_user_banned(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM banned_users '
-         'WHERE user_id = ?)'),
-        [user_id]
-    )
-    try:
-        exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
-    except TypeError:
-        print(f"Error: is_user_banned({user_id})")
-        exist = -1
-    db.close()
-    return exist
+def notify_callback(context):
+    uid, msg = context.job.context
+    send_bot(context.bot, uid, msg)
 
 
-def ban_user(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('INSERT INTO banned_users '
-         'VALUES (?)'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-    bot_blocked(user_id)
-
-
-def get_strikes(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT warn_strikes '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    try:
-        strikes = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: get_strikes({user_id})")
-        strikes = -1
-    db.close()
-    return strikes
-
-
-def inc_strike(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE users '
-         'SET warn_strikes = warn_strikes + 1 '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-
-
-def dec_strike(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur_strikes = get_strikes(user_id)
-    if cur_strikes > 0:
-        cur.execute(
-            ('UPDATE users '
-             'SET warn_strikes = warn_strikes - 1 '
-             'WHERE user_id = ?'),
-            [user_id]
-        )
-    db.commit()
-    db.close()
-
-
-def is_user_in_db(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM users '
-         'WHERE user_id = ?)'),
-        [user_id]
-    )
-    try:
-        exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
-    except TypeError:
-        print(f"Error: is_user_in_db({user_id})")
-        exist = -1
-    db.close()
-    return exist
-
-
-def delete_user_from_db(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('DELETE '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
-
-
-def get_users():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT user_id '
-         'FROM users')
-    )
-    user_list = cur.fetchall()
-    db.close()
-    return user_list
-
-
-def get_resin(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT resin '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    try:
-        resin = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: get_resin({user_id})")
-        resin = -1
-    db.close()
-    return resin
-
-
-def set_resin(user_id, resin):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET resin = ? '
-             'WHERE user_id = ?'),
-            [resin, user_id]
-        )
+def notify(queue, msg, force=True):
+    if force:
+        users = db.all_users()
     else:
-        cur.execute(
-            ('INSERT INTO users (user_id, resin) '
-             'VALUES (?, ?)'),
-            [user_id, resin]
-        )
-
-    db.commit()
-    db.close()
-
-
-def inc_resin(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE users '
-         'SET resin = resin + 1 '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    db.commit()
-    db.close()
+        users = db.all_users_notify()
+    cnt = USERS_TO_NOTIFY
+    time = 0
+    for uid, in users:
+        if cnt == 0:
+            cnt = USERS_TO_NOTIFY
+            time += TIME_BETWEEN_NOTIFY
+        queue.run_once(notify_callback, time,
+                       context=(uid, msg), name=f"{uid}: {msg[:15]}")
+        cnt -= 1
 
 
-def dec_resin(user_id, resin):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE users '
-         'SET resin = resin - ? '
-         'WHERE user_id = ?'),
-        [resin, user_id]
-    )
-    db.commit()
-    db.close()
+def notify_codes(queue):
+    unmarked = db.unmarked_codes()
+    if unmarked:
+        msg = codes_format(unmarked)
+        notify(queue, msg, force=False)
+        db.mark_codes([(c[1],) for c in unmarked])
 
 
-def max_resin(user_id):
-    cur_resin = get_resin(user_id)
-    captime = (MAX_RESIN - cur_resin) * RESIN_REGEN_MIN
-    return captime // 60, captime % 60
+def strike_user(uid, msg=""):
+    db.inc_strikes(uid)
+    cur_strikes = db.get_strikes(uid)
+    if cur_strikes >= STRIKE_BAN:
+        msg = "⛔ You've been banned for spam/flooding ⛔"
+        db.ban_user(uid)
+    if not msg:
+        msg = ["🚫 Unknown command 🚫\n\n",
+               "ℹ️ Send /help for a list of commands.\n\n",
+               "⛔ Don't flood the bot or you will be banned ⛔"]
+    return "".join(msg)
 
 
-def get_warn(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT warn '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    try:
-        warn = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: get_warn({user_id})")
-        warn = -1
-    db.close()
-    return warn
+def user_hour(hour, minutes, tz_hour, tz_minutes):
+    bot_hour = int(datetime.strftime(datetime.now(), '%H'))
+    bot_min = int(datetime.strftime(datetime.now(), '%M'))
+    local_min = (bot_min + minutes + tz_minutes) % 60
+    carry_hour = (bot_min + minutes) // 60
+    local_hour = (bot_hour + hour + carry_hour + tz_hour) % 24
+    return local_hour, local_min
 
 
-def set_warn(user_id, warn):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
+def resin_cap(uid, resin):
+    (hard_h, hard_m), (soft_h, soft_m) = db.max_resin(uid, resin)
+    tz_hour, tz_minutes = db.get_timezone(uid).split(':')
+    cap = ([(hard_h, hard_m), None], [(soft_h, soft_m), None])
+    if tz_hour != 'null':
+        tz_hour, tz_minutes = int(tz_hour), int(tz_minutes)
+        hard_hour, hard_min = user_hour(hard_h, hard_m, tz_hour, tz_minutes)
+        soft_hour, soft_min = user_hour(soft_h, soft_m, tz_hour, tz_minutes)
+        cap[0][1] = (hard_hour, hard_min)
+        cap[1][1] = (soft_hour, soft_min)
+    return cap
 
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET warn = ? '
-             'WHERE user_id = ?'),
-            [warn, user_id]
-        )
+
+def cap_format(uid, resin=None):
+    no_soft = False
+    if resin is None:
+        resin = db.get_warn(uid)
+        if resin == -1:
+            no_soft = True
+            resin = RESIN_MAX
+    cur_resin = db.get_resin(uid)
+    hard, soft = resin_cap(uid, resin)
+
+    soft_time = f"<code>{soft[0][0]}h+{soft[0][1]}m</code>"
+    hard_time = f"<code>{hard[0][0]}h+{hard[0][1]}m</code>"
+    hard_h = ""
+    soft_h = ""
+    if hard[1] is not None:
+        soft_hour = f"<code>{soft[1][0]:02}:{soft[1][1]:02}h</code>"
+        hard_hour = f"<code>{hard[1][0]:02}:{hard[1][1]:02}h</code>"
+        soft_h = f" @ {soft_hour}"
+        hard_h = f" @ {hard_hour}"
+
+    soft_str = f"<b>Soft Cap (<code>{resin}</code>):</b> {soft_time}{soft_h}\n"
+
+    return (f"<b>Current resin:</b> <code>{cur_resin}</code>\n\n"
+            f"{soft_str if not no_soft else ''}"
+            f"<b>Hard Cap (<code>{RESIN_MAX}</code>):</b> {hard_time}{hard_h}")
+
+
+def gui_cap_format(uid):
+    no_soft = False
+    resin = db.get_warn(uid)
+    if resin == -1:
+        no_soft = True
+        resin = RESIN_MAX
+    hard, soft = resin_cap(uid, resin)
+
+    soft_time = f"{soft[0][0]}h+{soft[0][1]}m"
+    hard_time = f"{hard[0][0]}h+{hard[0][1]}m"
+    hard_h = ""
+    soft_h = ""
+    if hard[1] is not None:
+        soft_hour = f"{soft[1][0]:02}:{soft[1][1]:02}h"
+        hard_hour = f"{hard[1][0]:02}:{hard[1][1]:02}h"
+        soft_h = f" @ {soft_hour}"
+        hard_h = f" @ {hard_hour}"
+
+    soft_str = f"{soft_time}{soft_h} ({resin})"
+    hard_str = f"{hard_time}{hard_h} ({RESIN_MAX})"
+    if not no_soft:
+        return [(soft_str, 'resin_menu'), (hard_str, 'resin_menu')]
     else:
-        cur.execute(
-            ('INSERT INTO users (user_id, warn) '
-             'VALUES (?, ?)'),
-            [user_id, warn]
-        )
-
-    db.commit()
-    db.close()
+        return [(hard_str, 'resin_menu')]
 
 
-def custom_timezone(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT custom_timezone '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
+def codes_format(codes):
+    formatted = [f"<b>Rewards:</b> <code>{rew}</code>\n"
+                 f"<b>EU:</b> <code>{eu}</code>\n"
+                 f"<b>NA:</b> <code>{na}</code>\n"
+                 f"<b>SEA:</b> <code>{sea}</code>\n\n"
+                 for rew, eu, na, sea in codes]
+    formatted.append("Codes can be redeemed in:\n"
+                     "<b>Website:</b> https://genshin.mihoyo.com/en/gift\n"
+                     "<b>In-game:</b> Settings - Account - Redeem code.")
+    return "".join(formatted)
+
+
+def normalize_timezone(hour, minutes):
+    if isinstance(hour, str):
+        hour = int(hour)
+        minutes = int(minutes)
+    sym_hour = '-'
+    zero_hour = ''
+    sym_minutes = '-'
+    zero_minutes = ''
+    if hour >= 0:
+        sym_hour = '+'
+    if -10 < hour < 10:
+        zero_hour = '0'
+    if minutes >= 0:
+        sym_minutes = '+'
+    if -10 < minutes < 10:
+        zero_minutes = '0'
+    return (f"{sym_hour}{zero_hour}{abs(hour)}h"
+            f"{sym_minutes}{zero_minutes}{abs(minutes)}m")
+
+
+def text_format(first, second):
+    return f"<b>{first}:</b> <code>{second}</code>."
+
+
+def not_started(update):
+    send(update, "Send /start before continuing.")
+
+
+def not_started_gui(update):
+    edit(update, "Send /start before continuing.", None)
+
+
+def send(update, msg, quote=True, reply_markup=None):
     try:
-        custom_timezone = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: custom_timezone({user_id})")
-        custom_timezone = -1
-    db.close()
-    return custom_timezone
+        update.message.reply_html(msg, quote=quote, reply_markup=reply_markup,
+                                  disable_web_page_preview=True)
+    except Unauthorized:
+        blocked(update.effective_message.chat.id)
 
 
-def get_timezone(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT timezone '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
+def send_bot(bot, uid, msg, reply_markup=None):
     try:
-        timezone = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: get_timezone({user_id})")
-        timezone = -1
-    db.close()
-    return timezone
+        bot.send_message(uid, msg, ParseMode.HTML, reply_markup=reply_markup,
+                         disable_web_page_preview=True)
+    except Unauthorized:
+        blocked(uid)
 
 
-def set_timezone(user_id, timezone):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_user_in_db(user_id):
-        cur.execute(
-            ('UPDATE users '
-             'SET custom_timezone = 1, timezone = ? '
-             'WHERE user_id = ?'),
-            [timezone, user_id]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO users (user_id, custom_timezone, timezone) '
-             'VALUES (?, 1, ?)'),
-            [user_id, timezone]
-        )
-
-    db.commit()
-    db.close()
-
-
-def is_code_in_db(code):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM promo_codes '
-         'WHERE eu_code = ?)'),
-        [code]
-    )
+def edit(update, msg, reply_markup):
     try:
-        exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
-    except TypeError:
-        print(f"Error: code_in_db({code})")
-        exist = -1
-    db.close()
-    return exist
+        update.callback_query.edit_message_text(msg, ParseMode.HTML,
+                                                reply_markup=reply_markup,
+                                                disable_web_page_preview=True)
+    except BadRequest as br:
+        if not str(br).startswith("Message is not modified:"):
+            print(f"***  Exception caught in edit "
+                  f"({update.effective_message.chat.id}): ", br)
+            traceback.print_stack()
 
 
-def _is_expired(expired):
-    return int(expired.lower() == 'yes')
+def backup_trackings():
+    with open('.trackings', 'w') as f:
+        f.write("\n".join([str(uid)
+                           for uid in th.THREADS if th.is_tracked(uid)]))
 
 
-def add_code(rewards, expired, eu_code, na_code, sea_code):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-
-    if is_code_in_db(eu_code):
-        cur.execute(
-            ('UPDATE promo_codes '
-             'SET expired = ? '
-             'WHERE eu_code = ?'),
-            [_is_expired(expired), eu_code]
-        )
-    else:
-        cur.execute(
-            ('INSERT INTO promo_codes (rewards, expired, '
-             'eu_code, na_code, sea_code, notified)'
-             'VALUES (?, ?, ?, ?, ?, ?)'),
-            [rewards, _is_expired(expired),
-             eu_code, na_code, sea_code,
-             _is_expired(expired)]
-        )
-
-    db.commit()
-    db.close()
-
-
-def code_notified(code):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE promo_codes '
-         'SET notified = 1 '
-         'WHERE eu_code = ?'),
-        [code]
-    )
-    db.commit()
-    db.close()
-
-
-def is_code_unnotified():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT EXISTS('
-         'SELECT 1 '
-         'FROM promo_codes '
-         'WHERE notified = 0 AND expired = 0)')
-    )
+def restore_trackings(bot):
     try:
-        exist = cur.fetchone()[0]  # (1,) if exists, (0,) otherwise
-    except TypeError:
-        print("Error: is_code_unnotified()")
-        exist = -1
-    db.close()
-    return exist
-
-
-def get_unnotified_codes():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT eu_code, na_code, sea_code, rewards '
-         'FROM promo_codes '
-         'WHERE notified = 0')
-    )
-    try:
-        exist = cur.fetchall()
-    except TypeError:
-        print("Error: get_unnotified_codes()")
-        exist = -1
-    db.close()
-    return exist
-
-
-def get_unexpired_codes():
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT eu_code, na_code, sea_code, rewards '
-         'FROM promo_codes '
-         'WHERE expired = 0')
-    )
-    try:
-        exist = cur.fetchall()
-    except TypeError:
-        print("Error: get_unexpired_codes()")
-        exist = -1
-    db.close()
-    return exist
-
-
-def notify_codes_allowed(user_id):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('SELECT notify_codes '
-         'FROM users '
-         'WHERE user_id = ?'),
-        [user_id]
-    )
-    try:
-        allowed = cur.fetchone()[0]  # (x,)
-    except TypeError:
-        print(f"Error: notify_codes_allowed({user_id})")
-        allowed = -1
-    db.close()
-    return allowed
-
-
-def notify_codes_allow(user_id, allow):
-    db = sqlite3.connect('paimon.db')
-    cur = db.cursor()
-    cur.execute(
-        ('UPDATE users '
-         'SET notify_codes = ? '
-         'WHERE user_id = ?'),
-        [allow, user_id]
-    )
-    db.commit()
-    db.close()
-
-
-class ResinThread(Thread):
-    def __init__(self, event, user_id, current_timer, context):
-        Thread.__init__(self)
-        self.stopped = event
-        self.user_id = user_id
-        self.current_timer = current_timer
-        self.notified = False
-        self.maxreached = False
-        self.context = context
-        self.daemon = True
-
-    def notify(self, msg, cap=False):
-        try:
-            self.context.bot.send_message(
-                chat_id=self.user_id, text=msg)
-        except Unauthorized:
-            bot_blocked(self.user_id)
-            self.stopped.set()
-        finally:
-            if cap:
-                self.maxreached = True
-            else:
-                self.notified = True
-
-    def run(self):
-        while not self.stopped.wait(self.current_timer):
-            resin = get_resin(self.user_id)
-
-            if resin >= MAX_RESIN:
-                self.stopped.set()
-            else:
-                self.current_timer = RESIN_REGEN_MIN * 60
-                # debug
-                # self.current_timer = 5
-
-                inc_resin(self.user_id)
-
-                resin = get_resin(self.user_id)
-                warn = get_warn(self.user_id)
-
-                if warn <= resin < MAX_RESIN and not self.notified:
-                    self.notify(
-                        (f"‼ Hey! You have {resin} resin waiting!\n"
-                         f"Don't let it lose ‼"))
-                elif resin >= MAX_RESIN and not self.maxreached:
-                    self.notify(
-                        (f"‼ Hey! You have {resin} resin waiting!\n"
-                         "You won't earn more resin! ‼"),
-                        cap=True)
-                    self.stopped.set()
-                elif resin < warn:
-                    self.notified = False
-                    self.maxreached = False
-
-
-class PromoCodeThread(Thread):
-    def __init__(self, event, updater):
-        Thread.__init__(self)
-        self.stopped = event
-        self.url = "https://www.gensh.in/events/promotion-codes"
-        self.row_elem = 6
-        self.updater = updater
-        self.daemon = True
-        self.next_scrap = 5
-
-    def run(self):
-        while not self.stopped.wait(self.next_scrap):
-            self.next_scrap = CODE_CHECK_HOUR * 60 * 60
-            try:
-                req = requests.get(self.url)
-            except requests.exceptions.ConnectionError:
-                print("Error: Couldn't connect to gensh.in")
-            else:
-                soup = BeautifulSoup(req.text, features='html.parser')
-                codes_table = soup.find('table',
-                                        attrs={
-                                            'class': 'ce-table-bordered'
-                                        }).find('tbody').find_all('td')
-
-                stripped_codes = [c.text.strip() for c in codes_table]
-                codes = [stripped_codes[i:i+self.row_elem]
-                         for i in range(0, len(stripped_codes), self.row_elem)]
-                for c in codes:
-                    _, reward, expired, eu_code, na_code, sea_code = c
-                    add_code(reward, expired, eu_code, na_code, sea_code)
-
-                notify_promo_codes(self.updater)
+        with open('.trackings', 'r') as f:
+            trackings = map(int, f.read().splitlines())
+            for uid in trackings:
+                th.new_thread(bot, uid, RESIN_REGEN * 60)
+    except FileNotFoundError:
+        pass

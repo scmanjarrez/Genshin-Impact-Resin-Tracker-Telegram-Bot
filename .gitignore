@@ -1,6 +1,10 @@
+# custom
+.idea
+server/
 paimon.db
 .apikey
 .adminid
+.trackings
 pymon/
 
 # Byte-compiled / optimized / DLL files
