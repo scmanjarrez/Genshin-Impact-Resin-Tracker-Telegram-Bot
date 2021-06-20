@@ -39,7 +39,7 @@ HELP = (
     "❔ /notifications <code>[#]</code> - Promotion code notifications. "
     "Use <code>1/-1</code> to enable/disable notifications."
     "\n"
-    "❔ /timezone <code>[mm:ss]</code> - Set your time zone. "
+    "❔ /timezone <code>[hh:mm]</code> - Set your time zone. "
     "Use <code>-1</code> to disable timezone."
     "\n"
     "❔ /codes - List of promotion codes."
@@ -76,7 +76,7 @@ def _synchronized(uid, msg):
 def start(update, context):
     uid = update.effective_message.chat.id
     if not db.banned(uid):
-        msg = f"I'm glad to see you again, Traveler!"
+        msg = "I'm glad to see you again, Traveler!"
         if not db.cached(uid):
             _state(uid)
             db.add_user(uid)
