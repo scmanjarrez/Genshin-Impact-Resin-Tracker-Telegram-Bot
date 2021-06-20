@@ -484,3 +484,12 @@ def announce(update, context):
     if uid == admin:
         msg = f"❗ <b>Announcement:</b> {' '.join(context.args)}"
         ut.notify(context.job_queue, msg)
+
+
+def restart(update, context):
+    uid = update.effective_message.chat.id
+    with open('.adminid', 'r') as f:
+        admin = int(f.read().strip())
+    if uid == admin:
+        msg = "⚠ Bot restarted. Please, synchronize bot timer /track."
+        ut.notify(context.job_queue, msg)

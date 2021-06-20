@@ -148,6 +148,10 @@ def setup_handlers(dispatch, job_queue):
                                       filters=~Filters.update.edited_message)
     dispatch.add_handler(announce_handler)
 
+    restart_handler = CommandHandler('restart', cli.restart,
+                                     filters=~Filters.update.edited_message)
+    dispatch.add_handler(restart_handler)
+
     text_handler = MessageHandler(
         Filters.text & ~Filters.update.edited_message, cli.text)
     dispatch.add_handler(text_handler)
@@ -169,7 +173,6 @@ if __name__ == '__main__':
 
     setup_handlers(dispatcher, updater.job_queue)
 
-    ut.notify_restart(updater.job_queue)
     ut.restore_trackings(updater.bot)
 
     updater.start_polling()

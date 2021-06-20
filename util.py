@@ -56,11 +56,6 @@ def notify(queue, msg, force=True):
         cnt -= 1
 
 
-def notify_restart(queue):
-    msg = "⚠ Bot restarted. Please, synchronize bot timer /track."
-    notify(queue, msg)
-
-
 def notify_codes(queue):
     unmarked = db.unmarked_codes()
     if unmarked:
