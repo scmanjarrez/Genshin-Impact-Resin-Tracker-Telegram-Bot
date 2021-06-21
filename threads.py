@@ -9,6 +9,7 @@ import re
 
 
 THREADS = {}
+UNSYNC = []
 CODE_CHECK_HOUR = 8
 URL = "https://www.gensh.in/events/promotion-codes"
 TBODY = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.IGNORECASE | re.DOTALL)
@@ -27,12 +28,18 @@ def is_tracked(uid):
     return uid in THREADS and THREADS[uid][0].is_alive()
 
 
+def is_unsync(uid):
+    return uid in UNSYNC and is_tracked(uid)
+
+
 def new_thread(bot, uid, timer):
     del_thread(uid)
     flag = Event()
     thread = ResinThread(bot, uid, timer, flag)
     thread.start()
     THREADS[uid] = (thread, flag)
+    if uid in UNSYNC:
+        UNSYNC.remove(uid)
 
 
 def new_promo_thread(job_queue):

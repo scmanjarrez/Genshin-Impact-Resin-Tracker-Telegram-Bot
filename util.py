@@ -236,5 +236,6 @@ def restore_trackings(bot):
             trackings = map(int, f.read().splitlines())
             for uid in trackings:
                 th.new_thread(bot, uid, RESIN_REGEN * 60)
+                th.UNSYNC.append(uid)
     except FileNotFoundError:
         pass

@@ -50,10 +50,18 @@ def main_menu(update):
     resp(update, "Main Menu", reply_markup=InlineKeyboardMarkup(kb))
 
 
+def _tracking_status(uid):
+    if th.is_unsync(uid):
+        return '🟠'
+    if th.is_tracked(uid):
+        return '🟢'
+    return '🔴'
+
+
 def resin_menu(update):
     uid = update.effective_message.chat.id
     cur_resin = db.get_resin(uid)
-    tracking = '🟢' if th.is_tracked(uid) else '🔴'
+    tracking = _tracking_status(uid)
     kb = [button([(f"🌙 {cur_resin} 🌙", 'resin_menu'),
                   (f"Tracking: {tracking}", 'tracking_menu')]),
           button(ut.gui_cap_format(uid)),
@@ -67,13 +75,14 @@ def tracking_menu(update):
     uid = update.effective_message.chat.id
     _state(uid, ut.CMD.TRACK, list(ut.TRACK_MAX))
     st_track = STATE[uid][ut.CMD.TRACK]
-    tracking = '🟢' if th.is_tracked(uid) else '🔴'
-    kb = [button([(f"Tracking: {tracking}", 'nop')]),
+    tracking = _tracking_status(uid)
+    kb = [button([(f"Tracking: {tracking}", 'tracking_menu')]),
           button([("« Back to Resin", 'resin_menu'),
                   ("« Back to Menu", 'main_menu')])]
-    if th.is_tracked(uid):
-        kb.insert(1, button([("Stop Tracking", 'tracking_stop')]))
-    else:
+    track_txt = "Start Tracking"
+    if th.is_unsync(uid):
+        track_txt = "Synchronize"
+    if th.is_unsync(uid) or not th.is_tracked(uid):
         kb.insert(1, button([("˄", 'tracking_up0'),
                              (" ", 'nop'),
                              ("˄", 'tracking_up1'),
@@ -86,7 +95,13 @@ def tracking_menu(update):
                              (" ", 'nop'),
                              ("˅", 'tracking_down1'),
                              ("˅", 'tracking_down2')]))
-        kb.insert(4, button([("Start Tracking", 'tracking_start')]))
+        kb.insert(4, button([(track_txt, 'tracking_start')]))
+    if th.is_unsync(uid) or th.is_tracked(uid):
+        idx = 1
+        if th.is_unsync(uid):
+            idx = 5
+        kb.insert(idx, button([("Stop Tracking", 'tracking_stop')]))
+
     ut.edit(update, "Tracking Menu", InlineKeyboardMarkup(kb))
 
 
@@ -139,12 +154,16 @@ def spend_menu(update):
         kb[1].append(button([("No Resin Left!", 'nop')])[0])
     if cur_resin >= 20:
         kb[1].append(button([("20", 'spend_r20')])[0])
+    if cur_resin >= 30:
+        kb[1].append(button([("30", 'spend_r30')])[0])
     if cur_resin >= 40:
         kb[1].append(button([("40", 'spend_r40')])[0])
     if cur_resin >= 60:
         kb[1].append(button([("60", 'spend_r60')])[0])
     if cur_resin >= 80:
         kb[1].append(button([("80", 'spend_r80')])[0])
+    if cur_resin >= 90:
+        kb[1].append(button([("90", 'spend_r90')])[0])
     if cur_resin >= 120:
         kb[1].append(button([("120", 'spend_r120')])[0])
 
@@ -206,14 +225,18 @@ def refill_updown(update, up=True):
     else:
         st_refill[pos] = (st_refill[pos] - 1) % 10
     if int("".join(str(c) for c in st_refill)) > ut.RESIN_MAX - cur_resin:
-        STATE[uid][ut.CMD.REFILL] = [int(el) for el in
-                                     f"{ut.RESIN_MAX - cur_resin:03d}"]
+        new_state = ut.RESIN_MAX - cur_resin
+        if new_state < 0:
+            new_state = 0
+        STATE[uid][ut.CMD.REFILL] = [int(el) for el in f"{new_state:03d}"]
     refill_menu(update)
 
 
 def codes_menu(update):
-    kb = [button([("Rewards", 'rew'),
-                  ("EU", 'eu'), ("NA", 'na'), ("SEA", 'sea')]),
+    kb = [button([("Rewards", 'codes_menu'),
+                  ("EU", 'codes_menu'),
+                  ("NA", 'codes_menu'),
+                  ("SEA", 'codes_menu')]),
           button([("How to redeem?", 'codes_redeem')]),
           button([("« Back to Menu", 'main_menu')])]
     pre = 'code_desc'
@@ -271,7 +294,7 @@ def settings_warn_menu(update):
         cur_warn = 'disabled'
         warn_icon = '🔕'
     st_warn = STATE[uid][ut.CMD.WARN]
-    kb = [button([(f"Threshold: {cur_warn}", 'nop'),
+    kb = [button([(f"Threshold: {cur_warn}", 'settings_warn_menu'),
                   (f"Resin Warnings: {warn_icon}", 'warn_toggle')]),
           button([("˄", 'warn_up0'),
                   ("˄", 'warn_up1'),
@@ -365,7 +388,8 @@ def settings_timezone_menu(update):
         tz = 'disabled'
     else:
         tz = ut.normalize_timezone(tz_hour, tz_minutes)
-    kb = [button([(f"Bot Hour: {bot_hour:02}:{bot_minutes:02}", 'nop')]),
+    kb = [button([(f"Bot Hour: {bot_hour:02}:{bot_minutes:02}",
+                   'settings_timezone_menu')]),
           button([(f"Current timezone: {tz}", 'timezone_menu')]),
           button([("« Back to Settings", 'settings_menu'),
                   ("« Back to Menu", 'main_menu')])]

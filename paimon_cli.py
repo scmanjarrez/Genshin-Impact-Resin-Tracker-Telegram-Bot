@@ -66,10 +66,14 @@ def del_state(uid):
 
 
 def _synchronized(uid, msg):
-    if not th.is_tracked(uid):
+    if th.is_unsync(uid):
         msg = (f"{msg}\n\n"
-               f"⚠ Bot not tracking your "
-               f"resin, send /track to synchronize bot timer.")
+               f"⚠ Bot not synchronized, "
+               f"send /track to synchronize bot timer.")
+    elif not th.is_tracked(uid):
+        msg = (f"{msg}\n\n"
+               f"⚠ Bot not tracking your resin, "
+               f"send /track to synchronize bot timer.")
     return msg
 
 
@@ -114,6 +118,7 @@ def resin(update, context):
                         msg = ut.strike_user(uid, msg)
             else:
                 msg = ut.cap_format(uid)
+                msg = _synchronized(uid, msg)
                 db.dec_strikes(uid)
             _state(uid)
             ut.send(update, msg)
