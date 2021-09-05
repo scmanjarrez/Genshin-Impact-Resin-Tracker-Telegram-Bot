@@ -10,7 +10,7 @@ import re
 
 THREADS = {}
 UNSYNC = []
-CODE_CHECK_HOUR = 8
+CODE_CHECK_HOUR = 168
 URL = "https://www.gensh.in/events/promotion-codes"
 TBODY = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.IGNORECASE | re.DOTALL)
 TR = re.compile(r"<tr>\s*(.*?)\s*</tr>")

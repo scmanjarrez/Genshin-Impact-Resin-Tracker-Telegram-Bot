@@ -2,9 +2,10 @@
 .idea
 server/
 paimon.db
-.apikey
-.adminid
 .trackings
+.config
+paimon.key
+paimon.pem
 pymon/
 
 # Byte-compiled / optimized / DLL files

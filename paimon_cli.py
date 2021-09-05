@@ -4,6 +4,7 @@ from datetime import datetime
 import database as db
 import threads as th
 import util as ut
+import paimon
 
 
 STATE = {}
@@ -91,7 +92,10 @@ def start(update, context):
 def bot_help(update, context):
     uid = update.effective_message.chat.id
     if not db.banned(uid):
-        ut.send(update, HELP)
+        if not db.cached(uid):
+            ut.not_started(update)
+        else:
+            ut.send(update, HELP)
 
 
 def resin(update, context):
@@ -488,8 +492,7 @@ def stop(update, context):
 
 def announce(update, context):
     uid = update.effective_message.chat.id
-    with open('.adminid', 'r') as f:
-        admin = int(f.read().strip())
+    admin = int(paimon.load_config()['admin'])
     if uid == admin:
         msg = f"❗ <b>Announcement:</b> {' '.join(context.args)}"
         ut.notify(context.job_queue, msg)

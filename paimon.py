@@ -8,6 +8,7 @@ import database as db
 import threads as th
 import util as ut
 import logging
+import os
 
 
 def button_handler(update, context):
@@ -159,22 +160,40 @@ def setup_handlers(dispatch, job_queue):
     dispatch.add_handler(CallbackQueryHandler(button_handler))
 
 
+def load_config():
+    with open(".config", 'r') as f:
+        config = {k: v for k, v in
+                  [line.split('=') for line in f.read().splitlines()]}
+    return config
+
+
 if __name__ == '__main__':
     logging.basicConfig(format=('%(asctime)s - %(name)s - '
                                 '%(levelname)s - %(message)s'),
                         level=logging.INFO)
 
-    with open(".apikey", 'r') as f:
-        API_KEY = f.read().strip()
-    db.setup_db()
+    if os.path.isfile('.config'):
+        config = load_config()
+        db.setup_db()
 
-    updater = Updater(token=API_KEY, use_context=True)
-    dispatcher = updater.dispatcher
+        updater = Updater(token=config['apikey'], use_context=True)
+        dispatcher = updater.dispatcher
 
-    setup_handlers(dispatcher, updater.job_queue)
+        setup_handlers(dispatcher, updater.job_queue)
 
-    ut.restore_trackings(updater.bot)
+        ut.restore_trackings(updater.bot)
 
-    updater.start_polling()
-    updater.idle()
-    ut.backup_trackings()
+        updater.start_webhook(listen=config['listen'],
+                              port=config['port'],
+                              url_path=config['apikey'],
+                              key=config['key'],
+                              cert=config['cert'],
+                              webhook_url=(f"https://"
+                                           f"{config['ip']}:"
+                                           f"{config['port']}/"
+                                           f"{config['apikey']}"))
+        updater.idle()
+
+        ut.backup_trackings()
+    else:
+        print("File .config not found.")
