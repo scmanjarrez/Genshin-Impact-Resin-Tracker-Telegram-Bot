@@ -28,6 +28,10 @@ class CMD(Enum):
     TZ = 'timezone'
 
 
+def uid(update):
+    return update.effective_message.chat.id
+
+
 def blocked(uid):
     th.del_thread(uid)
     cli.del_state(uid)
@@ -54,14 +58,6 @@ def notify(queue, msg, force=True):
         queue.run_once(notify_callback, time,
                        context=(uid, msg), name=f"{uid}: {msg[:15]}")
         cnt -= 1
-
-
-def notify_codes(queue):
-    unmarked = db.unmarked_codes()
-    if unmarked:
-        msg = codes_format(unmarked)
-        notify(queue, msg, force=False)
-        db.mark_codes([(c[1],) for c in unmarked])
 
 
 def strike_user(uid, msg=""):
@@ -150,18 +146,6 @@ def gui_cap_format(uid):
         return [(soft_str, 'resin_menu'), (hard_str, 'resin_menu')]
     else:
         return [(hard_str, 'resin_menu')]
-
-
-def codes_format(codes):
-    formatted = [f"<b>Rewards:</b> <code>{rew}</code>\n"
-                 f"<b>EU:</b> <code>{eu}</code>\n"
-                 f"<b>NA:</b> <code>{na}</code>\n"
-                 f"<b>SEA:</b> <code>{sea}</code>\n\n"
-                 for rew, eu, na, sea in codes]
-    formatted.append("Codes can be redeemed in:\n"
-                     "<b>Website:</b> https://genshin.mihoyo.com/en/gift\n"
-                     "<b>In-game:</b> Settings - Account - Redeem code.")
-    return "".join(formatted)
 
 
 def normalize_timezone(hour, minutes):

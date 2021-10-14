@@ -1,7 +1,7 @@
 apikey=your_bot_token
 admin=your_telegram_id
 listen=0.0.0.0
-ip=127.0.0.1
+ip=your_server_ip
 port=88
-key=paimon.key
-cert=paimon.pem
+key=private_key.key
+cert=certificate.pem

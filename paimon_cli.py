@@ -37,13 +37,8 @@ HELP = (
     "❔ /warnings <code>[#]</code> - Set resin warning threshold. "
     "Use <code>-1</code> to disable warnings."
     "\n"
-    "❔ /notifications <code>[#]</code> - Promotion code notifications. "
-    "Use <code>1/-1</code> to enable/disable notifications."
-    "\n"
     "❔ /timezone <code>[hh:mm]</code> - Set your time zone. "
     "Use <code>-1</code> to disable timezone."
-    "\n"
-    "❔ /codes - List of promotion codes."
     "\n\n"
 
     "<b>Bot Usage</b>\n"
@@ -79,7 +74,7 @@ def _synchronized(uid, msg):
 
 
 def start(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         msg = "I'm glad to see you again, Traveler!"
         if not db.cached(uid):
@@ -90,7 +85,7 @@ def start(update, context):
 
 
 def bot_help(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -99,7 +94,7 @@ def bot_help(update, context):
 
 
 def resin(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -145,7 +140,7 @@ def _set_resin(args, uid, msg):
 
 
 def set_resin(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -179,7 +174,7 @@ def _spend(args, uid, msg, current):
 
 
 def spend(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -215,7 +210,7 @@ def _refill(args, uid, msg, current, max_resin):
 
 
 def refill(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -260,7 +255,7 @@ def _track(args, bot, uid, msg):
 
 
 def track(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -299,7 +294,7 @@ def _warnings(args, uid, msg):
 
 
 def warnings(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -317,40 +312,6 @@ def warnings(update, context):
                        f"Tell me resin value to be warned at, "
                        f"or <code>-1</code> to disable")
                 _state(uid, ut.CMD.WARN)
-                db.dec_strikes(uid)
-            ut.send(update, msg)
-
-
-def notifications(update, context):
-    uid = update.effective_message.chat.id
-    if not db.banned(uid):
-        if not db.cached(uid):
-            ut.not_started(update)
-        else:
-            msg = ("❗ Argument must be 1 or -1, "
-                   "e.g. /notifications 1, /notifications -1")
-            if context.args:
-                try:
-                    value = int(context.args[0])
-                except ValueError:
-                    msg = ut.strike_user(uid, msg)
-                else:
-                    if abs(value) == 1:
-                        if value == -1:
-                            db.unset_notifications(uid)
-                            value = "disabled"
-                        else:
-                            db.set_notifications(uid)
-                            value = "enabled"
-                        msg = ut.text_format("Current notifications status",
-                                             value)
-                        db.dec_strikes(uid)
-                    else:
-                        msg = ut.strike_user(uid, msg)
-            else:
-                status = ('enabled' if db.get_notifications(uid) == 1
-                          else 'disabled')
-                msg = ut.text_format("Current notifications status", status)
                 db.dec_strikes(uid)
             ut.send(update, msg)
 
@@ -385,7 +346,7 @@ def _timezone(args, uid, msg):
 
 
 def timezone(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -410,7 +371,7 @@ def timezone(update, context):
 
 
 def text(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -452,18 +413,8 @@ def text(update, context):
             ut.send(update, msg)
 
 
-def codes(update, context):
-    uid = update.effective_message.chat.id
-    if not db.banned(uid):
-        if not db.cached(uid):
-            ut.not_started(update)
-        else:
-            unexpired = db.unexpired_codes()
-            ut.send(update, ut.codes_format(unexpired))
-
-
 def cancel(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -481,7 +432,7 @@ def cancel(update, context):
 
 
 def stop(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         msg = "Bot doesn't have information about you."
         if db.cached(uid):
@@ -491,7 +442,7 @@ def stop(update, context):
 
 
 def announce(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     admin = int(paimon.load_config()['admin'])
     if uid == admin:
         msg = f"❗ <b>Announcement:</b> {' '.join(context.args)}"
@@ -499,7 +450,7 @@ def announce(update, context):
 
 
 def restart(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     with open('.adminid', 'r') as f:
         admin = int(f.read().strip())
     if uid == admin:

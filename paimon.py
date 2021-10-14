@@ -12,7 +12,7 @@ import os
 
 
 def button_handler(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     query = update.callback_query
     try:
         query.answer()
@@ -49,13 +49,6 @@ def button_handler(update, context):
                 gui.refill_updown(update, up=False)
             elif query.data == 'refill_r':
                 gui.refill_resin(update)
-            elif query.data == 'codes_menu':
-                gui.codes_menu(update)
-            elif query.data.startswith('code_desc'):
-                ctype, cdata = query.data.split(':')[1:]
-                gui.code_menu(update, ctype, cdata)
-            elif query.data == 'codes_redeem':
-                gui.redeem_menu(update)
             elif query.data == 'settings_menu':
                 gui.settings_menu(update)
             elif query.data == 'settings_warn_menu':
@@ -68,10 +61,6 @@ def button_handler(update, context):
                 gui.warn_updown(update)
             elif query.data.startswith('warn_down'):
                 gui.warn_updown(update, up=False)
-            elif query.data == 'settings_promo_menu':
-                gui.settings_promo_menu(update)
-            elif query.data == 'promo_toggle':
-                gui.promo_toggle(update)
             elif query.data == 'settings_timezone_menu':
                 gui.settings_timezone_menu(update)
             elif query.data == 'timezone_menu':
@@ -87,8 +76,6 @@ def button_handler(update, context):
 
 
 def setup_handlers(dispatch, job_queue):
-    th.new_promo_thread(job_queue)
-
     start_handler = CommandHandler('start', cli.start,
                                    filters=~Filters.update.edited_message)
     dispatch.add_handler(start_handler)
@@ -125,17 +112,9 @@ def setup_handlers(dispatch, job_queue):
                                       filters=~Filters.update.edited_message)
     dispatch.add_handler(warnings_handler)
 
-    notifications_handler = CommandHandler('notifications', cli.notifications,
-                                           filters=~Filters.update.edited_message)  # noqa
-    dispatch.add_handler(notifications_handler)
-
     timezone_handler = CommandHandler('timezone', cli.timezone,
                                       filters=~Filters.update.edited_message)
     dispatch.add_handler(timezone_handler)
-
-    codes_handler = CommandHandler('codes', cli.codes,
-                                   filters=~Filters.update.edited_message)
-    dispatch.add_handler(codes_handler)
 
     cancel_handler = CommandHandler('cancel', cli.cancel,
                                     filters=~Filters.update.edited_message)

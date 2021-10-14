@@ -32,7 +32,7 @@ def button(buttons):
 
 
 def menu(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     if not db.banned(uid):
         if not db.cached(uid):
             ut.not_started(update)
@@ -42,7 +42,6 @@ def menu(update, context):
 
 def main_menu(update):
     kb = [button([("🌙 Resin 🌙", 'resin_menu')]),
-          button([("🎁 Promotion Codes 🎁", 'codes_menu')]),
           button([("⚙ Settings ⚙", 'settings_menu')])]
     resp = ut.send
     if update.callback_query is not None:
@@ -59,7 +58,7 @@ def _tracking_status(uid):
 
 
 def resin_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_resin = db.get_resin(uid)
     tracking = _tracking_status(uid)
     kb = [button([(f"🌙 {cur_resin} 🌙", 'resin_menu'),
@@ -72,7 +71,7 @@ def resin_menu(update):
 
 
 def tracking_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     _state(uid, ut.CMD.TRACK, list(ut.TRACK_MAX))
     st_track = STATE[uid][ut.CMD.TRACK]
     tracking = _tracking_status(uid)
@@ -106,7 +105,7 @@ def tracking_menu(update):
 
 
 def tracking_start(update, context):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     mm = int(update.callback_query.message.reply_markup
              .inline_keyboard[2][0]['text'])
     s1 = int(update.callback_query.message.reply_markup
@@ -119,13 +118,13 @@ def tracking_start(update, context):
 
 
 def tracking_stop(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     th.del_thread(uid)
     tracking_menu(update)
 
 
 def tracking_updown(update, up=True):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     _state(uid, ut.CMD.TRACK, list(ut.TRACK_MAX))
     st_track = STATE[uid][ut.CMD.TRACK]
     txt = 'tracking_down'
@@ -142,7 +141,7 @@ def tracking_updown(update, up=True):
 
 
 def spend_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_resin = db.get_resin(uid)
     kb = [button([(f"🌙 {cur_resin} 🌙", 'spend_menu')]),
           [],
@@ -171,14 +170,14 @@ def spend_menu(update):
 
 
 def spend_resin(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     resin = int(update.callback_query.data.split('spend_r')[1])
     db.dec_resin(uid, resin)
     spend_menu(update)
 
 
 def refill_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_resin = db.get_resin(uid)
     _state(uid, ut.CMD.REFILL, list(ut.REFILL_BASE))
     st_refill = STATE[uid][ut.CMD.REFILL]
@@ -199,7 +198,7 @@ def refill_menu(update):
 
 
 def refill_resin(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     r0 = (update.callback_query.message.reply_markup
           .inline_keyboard[2][0]['text'])
     r1 = (update.callback_query.message.reply_markup
@@ -212,7 +211,7 @@ def refill_resin(update):
 
 
 def refill_updown(update, up=True):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     _state(uid, ut.CMD.REFILL, list(ut.REFILL_BASE))
     st_refill = STATE[uid][ut.CMD.REFILL]
     cur_resin = db.get_resin(uid)
@@ -232,59 +231,15 @@ def refill_updown(update, up=True):
     refill_menu(update)
 
 
-def codes_menu(update):
-    kb = [button([("Rewards", 'codes_menu'),
-                  ("EU", 'codes_menu'),
-                  ("NA", 'codes_menu'),
-                  ("SEA", 'codes_menu')]),
-          button([("How to redeem?", 'codes_redeem')]),
-          button([("« Back to Menu", 'main_menu')])]
-    pre = 'code_desc'
-    for idx, code in enumerate(db.unexpired_codes()):
-        rewards, eu_code, na_code, sea_code = code
-        kb.insert(len(kb) - 2,
-                  button([(f"{rewards}", f'{pre}:rewards:{eu_code}'),
-                          (f"{eu_code}", f'{pre}:eu_code:{eu_code}'),
-                          (f"{na_code}", f'{pre}:na_code:{eu_code}'),
-                          (f"{sea_code}", f'{pre}:sea_code:{eu_code}')]))
-    ut.edit(update, "Active Promotion Codes", InlineKeyboardMarkup(kb))
-
-
-def code_menu(update, code_type, code_id):
-    if code_type == "rewards":
-        desc = "Rewards"
-    elif code_type == "eu_code":
-        desc = "EU Code"
-    elif code_type == "na_code":
-        desc = "NA Code"
-    elif code_type == "sea_code":
-        desc = "SEA Code"
-    msg = f"<b>{desc}:</b> <code>{db.info_code(code_id, code_type)}</code>"
-    kb = [button([("« Back to Active Codes", 'codes_menu'),
-                  ("« Back to Menu", 'main_menu')])]
-    ut.edit(update, msg, InlineKeyboardMarkup(kb))
-
-
-def redeem_menu(update):
-    kb = [button([("« Back to Active Codes", 'codes_menu'),
-                  ("« Back to Menu", 'main_menu')])]
-    ut.edit(update,
-            ("Codes can be redeemed in:\n"
-             "<b>Website:</b> https://genshin.mihoyo.com/en/gift\n"
-             "<b>In-game:</b> Settings - Account - Redeem code."),
-            InlineKeyboardMarkup(kb))
-
-
 def settings_menu(update):
     kb = [button([("⏰ Warning Settings ⏰", 'settings_warn_menu')]),
-          button([("📣 Notification Settings 📣", 'settings_promo_menu')]),
           button([("🌎 Timezone Settings 🌎", 'settings_timezone_menu')]),
           button([("« Back to Menu", 'main_menu')])]
     ut.edit(update, "Settings Menu", InlineKeyboardMarkup(kb))
 
 
 def settings_warn_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_warn = db.get_warn(uid)
     if cur_warn != -1:
         _state(uid, ut.CMD.WARN, [int(cw) for cw in f"{cur_warn:03d}"])
@@ -323,7 +278,7 @@ def _warn_value(update):
 
 
 def warn_toggle(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_warn = db.get_warn(uid)
     if cur_warn == -1:
         db.set_warn(uid, _warn_value(update))
@@ -333,13 +288,13 @@ def warn_toggle(update):
 
 
 def warn_threshold(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     db.set_warn(uid, _warn_value(update))
     settings_warn_menu(update)
 
 
 def warn_updown(update, up=True):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     cur_warn = db.get_warn(uid)
     if cur_warn != -1:
         _state(uid, ut.CMD.WARN, [int(cw) for cw in f"{cur_warn:03d}"])
@@ -360,27 +315,8 @@ def warn_updown(update, up=True):
     settings_warn_menu(update)
 
 
-def settings_promo_menu(update):
-    uid = update.effective_message.chat.id
-    promo_icon = '🔔' if db.get_notifications(uid) == 1 else '🔕'
-    kb = [button([(f"Promotion Code Notifications: {promo_icon}",
-                   'promo_toggle')]),
-          button([("« Back to Settings", 'settings_menu'),
-                  ("« Back to Menu", 'main_menu')])]
-    ut.edit(update, "Notifications Settings Menu", InlineKeyboardMarkup(kb))
-
-
-def promo_toggle(update):
-    uid = update.effective_message.chat.id
-    if db.get_notifications(uid) == 1:
-        db.unset_notifications(uid)
-    else:
-        db.set_notifications(uid)
-    settings_promo_menu(update)
-
-
 def settings_timezone_menu(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     bot_hour, bot_minutes = map(int, datetime.now()
                                 .strftime("%H:%M").split(':'))
     tz_hour, tz_minutes = db.get_timezone(uid).split(':')
@@ -397,7 +333,7 @@ def settings_timezone_menu(update):
 
 
 def timezone_menu(update, modified=False):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     tz_hour, tz_minutes = db.get_timezone(uid).split(':')
     if tz_hour == 'null':
         tz = 'disabled'
@@ -447,7 +383,7 @@ def _timezone_value(update):
 
 
 def timezone_updown(update, up=True):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     txt = 'timezone_down'
     if up:
         txt = 'timezone_up'
@@ -470,13 +406,13 @@ def timezone_updown(update, up=True):
 
 
 def timezone_disable(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     db.unset_timezone(uid)
     settings_timezone_menu(update)
 
 
 def timezone_set(update):
-    uid = update.effective_message.chat.id
+    uid = ut.uid(update)
     value_hour, value_minutes = _timezone_value(update)
     bot_hour, bot_minutes = map(int, datetime.now()
                                 .strftime("%H:%M").split(':'))

@@ -14,22 +14,12 @@ def setup_db():
                     uid INTEGER PRIMARY KEY,
                     resin INTEGER DEFAULT 0,
                     warn INTEGER DEFAULT 150,
-                    notifications INTEGER DEFAULT 1,
                     timezone TEXT DEFAULT 'null:null',
                     strikes INTEGER DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS banned (
                     uid INTEGER PRIMARY KEY
-                );
-
-                CREATE TABLE IF NOT EXISTS codes (
-                    rewards TEXT,
-                    expired INTEGER DEFAULT 0,
-                    notified INTEGER DEFAULT 0,
-                    eu_code TEXT PRIMARY KEY,
-                    na_code TEXT,
-                    sea_code TEXT
                 );
                 """
             )
@@ -223,99 +213,4 @@ def set_timezone(uid, hour, minutes):
             cur.execute('UPDATE users SET timezone = ? '
                         'WHERE uid = ?',
                         [f"{hour:02}:{minutes:02}", uid])
-            db.commit()
-
-
-def code_cached(code):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('SELECT EXISTS ('
-                        'SELECT 1 FROM codes WHERE eu_code = ?'
-                        ')',
-                        [code])
-            return cur.fetchone()[0]
-
-
-def _expired(expired):
-    return int(expired.lower() == 'yes')
-
-
-def add_code(rewards, expired, eu_code, na_code, sea_code):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            notified = expired = _expired(expired)
-            if code_cached(eu_code):
-                cur.execute('UPDATE codes SET expired = ? '
-                            'WHERE eu_code = ?',
-                            [expired, eu_code])
-            else:
-                cur.execute(
-                    'INSERT INTO codes '
-                    '(rewards, expired, notified, eu_code, na_code, sea_code) '
-                    'VALUES (?, ?, ?, ?, ?, ?)',
-                    [rewards, expired, notified, eu_code, na_code, sea_code])
-
-            db.commit()
-
-
-def info_code(eu_code, info):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute(f'SELECT {info} FROM codes '
-                        f'WHERE eu_code = ?',
-                        [eu_code])
-            return cur.fetchone()[0]  # (x,)
-
-
-def mark_codes(codes):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.executemany('UPDATE codes SET notified = 1 '
-                            'WHERE eu_code = ?',
-                            codes)
-            db.commit()
-
-
-def unmarked_codes():
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('SELECT rewards, eu_code, na_code, sea_code '
-                        'FROM codes '
-                        'WHERE notified = 0 AND expired = 0')
-            return cur.fetchall()
-
-
-def unexpired_codes():
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('SELECT rewards, eu_code, na_code, sea_code '
-                        'FROM codes '
-                        'WHERE expired = 0')
-            return cur.fetchall()
-
-
-def unset_notifications(uid):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('UPDATE users SET notifications = -1 '
-                        'WHERE uid = ?',
-                        [uid])
-            db.commit()
-
-
-def get_notifications(uid):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('SELECT notifications FROM users '
-                        'WHERE uid = ?',
-                        [uid])
-            return cur.fetchone()[0]  # (x,)
-
-
-def set_notifications(uid):
-    with closing(sql.connect(DB)) as db:
-        with closing(db.cursor()) as cur:
-            cur.execute('UPDATE users SET notifications = 1 '
-                        'WHERE uid = ?',
-                        [uid])
             db.commit()
