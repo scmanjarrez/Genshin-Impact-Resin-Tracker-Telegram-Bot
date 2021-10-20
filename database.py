@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: MIT
+
+# Copyright (c) 2021 scmanjarrez. All rights reserved.
+# This work is licensed under the terms of the MIT license.
+
 from contextlib import closing
 import sqlite3 as sql
 import util as ut
