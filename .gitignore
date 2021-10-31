@@ -1,12 +1,11 @@
 # custom
+pymon/
 .idea
-server/
-paimon.db
 .trackings
 .config
-paimon.key
-paimon.pem
-pymon/
+paimon.db
+*.key
+*.pem
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
