@@ -1,5 +1,6 @@
 # Description
-Source code of Telegram bot @ehe_te_nandayo_bot
+Telegram bot to track your resin using python timers. A new version using
+unofficial API is in development [Genshin-Impact-Stats-Telegram-Bot](https://github.com/scmanjarrez/Genshin-Impact-Stats-Telegram-Bot).
 
 # Requirements
 - python
