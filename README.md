@@ -5,6 +5,23 @@ unofficial API is in development [Genshin-Impact-Stats-Telegram-Bot](https://git
 # Requirements
 - python
 
+# BotFather set up
+Create a bot with [@BotFather](https://t.me/BotFather) and set the following commands:
+```
+start - Setup user data. Mandatory.
+help - List of commands.
+menu - Interact with me using UI. [beta]
+resin - Resin status.
+set - Set resin value.
+spend - Spend resin.
+refill - Increase resin.
+track - Synchronize bot timer.
+warnings - Set resin warning threshold.
+timezone - Set your timezone.
+cancel - Cancel current action.
+stop - Remove your information from bot.
+```
+
 # Run
 - Install python dependencies.
 
