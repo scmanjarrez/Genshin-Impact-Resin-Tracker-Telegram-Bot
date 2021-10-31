@@ -51,4 +51,4 @@ stop - Remove your information from bot.
     This work is licensed under the terms of the MIT license.
 
 For a copy, see
-[LICENSE](https://github.com/scmanjarrez/ordonnanz/blob/master/LICENSE).
+[LICENSE](https://github.com/scmanjarrez/Genshin-Impact-Resin-Tracker-Telegram-Bot/blob/master/LICENSE).
